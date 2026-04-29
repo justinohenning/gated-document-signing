@@ -2,6 +2,8 @@
 
 return [
   'db' => [
+    // PDO MySQL DSN must use host= and dbname= (port optional). Invalid: mysql:localhost:3306;...
+    // Example: mysql:host=localhost;port=3306;dbname=my_database;charset=utf8mb4
     'dsn' => 'mysql:host=127.0.0.1;dbname=gated_signing;charset=utf8mb4',
     'user' => 'dbuser',
     'pass' => 'dbpass',
