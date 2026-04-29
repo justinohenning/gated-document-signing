@@ -193,7 +193,7 @@ final class Branding {
   }
 
   /**
-   * @param bool $fromPublicUi If true (visitor UI), use a URL under public/. If false (admin), use same-directory branding-logo.php in /admin/.
+   * @param bool $fromPublicUi If true (visitor UI), use a URL under public/. If false (admin), use same-directory branding-logo.php under public/admin/.
    */
   public static function logoHref(bool $fromPublicUi = true): string {
     if ($fromPublicUi) {
