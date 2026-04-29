@@ -847,7 +847,7 @@ if ($view === 'branding') {
 }
 
 if ($view === 'analytics') {
-  require_once dirname(__DIR__) . '/src/AnalyticsReport.php';
+  require_once dirname(__DIR__, 2) . '/src/AnalyticsReport.php';
 
   $days = (int)($_GET['days'] ?? 14);
   if ($days < 1) $days = 1;
@@ -1056,7 +1056,7 @@ if ($view === 'analytics') {
 }
 
 if ($view === 'analytics_user') {
-  require_once dirname(__DIR__) . '/src/AnalyticsReport.php';
+  require_once dirname(__DIR__, 2) . '/src/AnalyticsReport.php';
 
   $days = (int)($_GET['days'] ?? 14);
   if ($days < 1) $days = 1;
@@ -1376,8 +1376,8 @@ if ($view === 'analytics_user') {
   echo '</div>';
 
   // Hover tooltip + thumbnails (PDF pages + images)
-  $pdfJsV = @filemtime(dirname(__DIR__) . '/public/assets/vendor/pdf.min.js') ?: time();
-  $pdfWorkerV = @filemtime(dirname(__DIR__) . '/public/assets/vendor/pdf.worker.min.js') ?: time();
+  $pdfJsV = @filemtime(dirname(__DIR__) . '/assets/vendor/pdf.min.js') ?: time();
+  $pdfWorkerV = @filemtime(dirname(__DIR__) . '/assets/vendor/pdf.worker.min.js') ?: time();
   echo '<script src="' . Util::h('../public/assets/vendor/pdf.min.js?v=' . $pdfJsV) . '"></script>';
   echo '<script>';
   echo 'window.__gdsPdfWorkerSrc = ' . json_encode('../public/assets/vendor/pdf.worker.min.js?v=' . $pdfWorkerV, JSON_UNESCAPED_SLASHES) . ';';

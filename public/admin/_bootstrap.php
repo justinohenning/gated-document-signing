@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-$configPath = dirname(__DIR__) . '/config.php';
+$configPath = dirname(__DIR__, 2) . '/config.php';
 if (!file_exists($configPath)) {
   http_response_code(500);
   echo "Missing config.php. Copy config.example.php to config.php and edit it.";
@@ -11,13 +11,13 @@ if (!file_exists($configPath)) {
 
 $config = require $configPath;
 
-require_once dirname(__DIR__) . '/src/Database.php';
-require_once dirname(__DIR__) . '/src/Util.php';
-require_once dirname(__DIR__) . '/src/Auth.php';
-require_once dirname(__DIR__) . '/src/Projects.php';
-require_once dirname(__DIR__) . '/src/NdaSigning.php';
-require_once dirname(__DIR__) . '/src/Branding.php';
-require_once dirname(__DIR__) . '/src/Startup.php';
+require_once dirname(__DIR__, 2) . '/src/Database.php';
+require_once dirname(__DIR__, 2) . '/src/Util.php';
+require_once dirname(__DIR__, 2) . '/src/Auth.php';
+require_once dirname(__DIR__, 2) . '/src/Projects.php';
+require_once dirname(__DIR__, 2) . '/src/NdaSigning.php';
+require_once dirname(__DIR__, 2) . '/src/Branding.php';
+require_once dirname(__DIR__, 2) . '/src/Startup.php';
 
 try {
   [$db, $projects, $ndaSigning] = Startup::connect($config);
@@ -48,7 +48,7 @@ function adminHeader(string $title): void {
   $navClass = static function (bool $on): string {
     return $on ? ' class="is-active" aria-current="page"' : '';
   };
-  $gdsCss = dirname(__DIR__) . '/public/assets/gds-ui.css';
+  $gdsCss = dirname(__DIR__) . '/assets/gds-ui.css';
   $shellCss = __DIR__ . '/admin-shell.css';
   $cssV = max(
     @filemtime($gdsCss) ?: 0,
