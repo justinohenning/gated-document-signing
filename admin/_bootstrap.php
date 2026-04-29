@@ -17,13 +17,13 @@ require_once dirname(__DIR__) . '/src/Auth.php';
 require_once dirname(__DIR__) . '/src/Projects.php';
 require_once dirname(__DIR__) . '/src/NdaSigning.php';
 require_once dirname(__DIR__) . '/src/Branding.php';
+require_once dirname(__DIR__) . '/src/Startup.php';
 
-Auth::startSession();
-$db = new Database($config);
-Branding::ensureSchema($db);
-$projects = new Projects($db, $config);
-$ndaSigning = new NdaSigning($db, $config);
-$GLOBALS['gds_branding'] = Branding::get($db, $config);
+try {
+  [$db, $projects, $ndaSigning] = Startup::connect($config);
+} catch (Throwable $e) {
+  Startup::failBootstrap($e, $config);
+}
 
 function adminHeader(string $title): void {
   $b = $GLOBALS['gds_branding'] ?? [];

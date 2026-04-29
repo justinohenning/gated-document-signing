@@ -8,6 +8,8 @@ return [
   ],
   // Change this to a long random string in config.php (never commit real secrets).
   'app_secret' => 'change-me',
+  // Set true temporarily on a broken install to see startup errors as plain text (disable after fixing).
+  'debug' => false,
   'base_url' => '', // e.g. "https://example.com/gated-signing" (no trailing slash). Leave blank to auto-detect.
   // Optional: explicit public URL for generated share links.
   // Example dev: "http://127.0.0.1:8008"
