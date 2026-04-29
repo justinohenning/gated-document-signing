@@ -1,0 +1,49 @@
+<?php
+
+require_once __DIR__ . '/_bootstrap.php';
+
+// One-time installer: creates the first admin if none exist.
+$existing = $db->fetchOne('SELECT id FROM admins ORDER BY id ASC LIMIT 1');
+
+adminHeader('Install');
+echo '<div class="card">';
+echo '<h2 style="margin:0 0 10px 0">Installer</h2>';
+
+if ($existing) {
+  echo '<div class="ok"><strong>Already installed.</strong> Admin account exists. Go to <a href="index.php?view=login">login</a>.</div>';
+  echo '</div>';
+  adminFooter();
+  exit;
+}
+
+$error = '';
+$ok = '';
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+  $email = strtolower(trim((string)($_POST['email'] ?? '')));
+  $pass = (string)($_POST['password'] ?? '');
+  if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    $error = 'Enter a valid email.';
+  } elseif (strlen($pass) < 10) {
+    $error = 'Password must be at least 10 characters.';
+  } else {
+    $hash = password_hash($pass, PASSWORD_DEFAULT);
+    $db->exec(
+      'INSERT INTO admins (email, password_hash, created_at) VALUES (:e, :h, UTC_TIMESTAMP())',
+      [':e' => $email, ':h' => $hash],
+    );
+    $ok = 'Admin created. You can now log in.';
+  }
+}
+
+if ($error !== '') echo '<div class="err" style="margin-bottom:12px"><strong>' . Util::h($error) . '</strong></div>';
+if ($ok !== '') echo '<div class="ok" style="margin-bottom:12px"><strong>' . Util::h($ok) . '</strong> <a href="index.php?view=login">Go to login</a></div>';
+
+echo '<p class="muted" style="margin:0 0 14px 0">Create your first admin account.</p>';
+echo '<form method="post">';
+echo '<div class="row"><div><label class="muted">Admin email</label><input name="email" type="email" required></div></div>';
+echo '<div class="row" style="margin-top:12px"><div><label class="muted">Password</label><input name="password" type="password" required></div></div>';
+echo '<div style="margin-top:14px;display:flex;justify-content:flex-end"><button type="submit">Create admin</button></div>';
+echo '</form>';
+echo '</div>';
+adminFooter();
+

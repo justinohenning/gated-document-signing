@@ -1,0 +1,433 @@
+/* Admin console — layout polish (loaded after gds-ui.css via stylesheet.php) */
+
+body.gds-app--admin main {
+  min-width: 0;
+}
+
+body.gds-app--admin .gds-topbar {
+  align-items: center;
+}
+
+body.gds-app--admin .gds-brand {
+  align-items: center;
+}
+
+body.gds-app--admin .gds-admin-nav {
+  font-size: var(--gds-text-sm);
+}
+
+body.gds-app--admin .gds-admin-nav a {
+  padding: var(--gds-space-2) var(--gds-space-3);
+  border-radius: var(--gds-radius-md);
+  font-weight: 500;
+}
+
+body.gds-app--admin table {
+  font-size: var(--gds-text-sm);
+}
+
+body.gds-app--admin .card {
+  margin-bottom: var(--gds-space-5);
+}
+
+body.gds-app--admin .card:last-child {
+  margin-bottom: 0;
+}
+
+body.gds-app--admin .gds-page-title + .gds-lead {
+  margin-top: calc(-1 * var(--gds-space-2));
+}
+
+/* ── Analytics: user timeline ──────────────────────────────────── */
+.gds-ua-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: var(--gds-space-5);
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .gds-ua-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gds-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gds-space-3);
+}
+
+.gds-timeline-row {
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  gap: var(--gds-space-3);
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .gds-timeline-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gds-timeline-meta__top {
+  font-size: var(--gds-text-sm);
+}
+
+.gds-timeline-meta__sub {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.gds-timeline-bar {
+  width: min(100%, var(--w));
+  height: 42px;
+  display: flex;
+  border-radius: var(--gds-radius-md);
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.03);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.gds-timeline-seg {
+  min-width: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(17, 24, 39, 0.92);
+  border-right: 1px solid rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gds-timeline-seg span {
+  pointer-events: none;
+}
+
+.gds-timeline-seg.is-pdf {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.30), rgba(59, 130, 246, 0.20));
+}
+
+.gds-timeline-seg.is-sheet {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.30), rgba(16, 185, 129, 0.20));
+}
+
+.gds-timeline-seg.is-other {
+  background: linear-gradient(180deg, rgba(107, 114, 128, 0.24), rgba(107, 114, 128, 0.18));
+}
+
+.gds-timeline-seg:hover {
+  filter: saturate(1.1) brightness(1.03);
+}
+
+/* v2 session + document tracks */
+.gds-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gds-space-4);
+}
+
+.gds-session-card {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--gds-radius-lg);
+  background: var(--gds-surface);
+  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.04);
+  padding: var(--gds-space-4);
+}
+
+.gds-session-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gds-space-3);
+  margin-bottom: var(--gds-space-3);
+}
+
+.gds-session-title {
+  font-size: var(--gds-text-sm);
+}
+
+.gds-session-sub {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.gds-session-badge {
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid rgba(0,0,0,0.10);
+  border-radius: 999px;
+  background: rgba(0,0,0,0.03);
+}
+
+.gds-session-track {
+  position: relative;
+  height: 34px;
+  border-radius: var(--gds-radius-md);
+  background: rgba(0,0,0,0.03);
+  border: 1px solid rgba(0,0,0,0.08);
+  overflow: hidden;
+  margin-bottom: var(--gds-space-3);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+}
+
+.gds-session-seg {
+  position: relative;
+  height: 100%;
+  border-radius: 10px;
+  background: rgba(2, 132, 199, 0.28);
+  border: 1px solid rgba(255,255,255,0.35);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+  min-width: 4px;
+}
+
+.gds-session-seg:hover {
+  filter: saturate(1.12) brightness(1.03);
+  outline: 2px solid rgba(17, 24, 39, 0.18);
+}
+
+.gds-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gds-space-3);
+}
+
+.gds-doc-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--gds-space-3);
+  align-items: center;
+}
+
+@media (max-width: 980px) {
+  .gds-doc-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gds-doc-name {
+  font-size: var(--gds-text-sm);
+  font-weight: 600;
+  color: var(--gds-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gds-doc-track {
+  position: relative;
+  height: 40px;
+  border-radius: var(--gds-radius-md);
+  background: rgba(0,0,0,0.03);
+  border: 1px solid rgba(0,0,0,0.08);
+  overflow: hidden;
+  display: flex;
+}
+
+.gds-doc-seg {
+  position: relative;
+  top: auto;
+  bottom: auto;
+  margin: 6px 0;
+  height: calc(100% - 12px);
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.28);
+  border: 1px solid rgba(255,255,255,0.35);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+  cursor: pointer;
+  min-width: 4px;
+}
+
+.gds-doc-seg[data-viewer-kind="sheet"] {
+  background: rgba(16, 185, 129, 0.28);
+}
+
+.gds-doc-seg[data-viewer-kind="image"] {
+  background: rgba(139, 92, 246, 0.28);
+}
+
+.gds-doc-seg:hover {
+  filter: saturate(1.15) brightness(1.03);
+  outline: 2px solid rgba(17, 24, 39, 0.22);
+}
+
+.gds-empty {
+  border: 1px dashed rgba(0,0,0,0.18);
+  border-radius: var(--gds-radius-lg);
+  padding: var(--gds-space-4);
+  background: rgba(0,0,0,0.02);
+}
+
+.gds-empty__title {
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+
+.gds-empty__sub {
+  font-size: var(--gds-text-sm);
+}
+
+/* Hover tooltip */
+.gds-tip {
+  position: fixed;
+  z-index: 11000;
+  width: 260px;
+  max-width: min(320px, 90vw);
+  background: var(--gds-surface);
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: var(--gds-radius-lg);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.18), 0 6px 16px rgba(0,0,0,0.08);
+  padding: 12px 12px 10px;
+  transform: translate3d(0,0,0);
+  pointer-events: none;
+}
+
+.gds-tip__title {
+  font-size: var(--gds-text-sm);
+  font-weight: 700;
+  color: var(--gds-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gds-tip__sub {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.gds-tip__thumb {
+  margin-top: 10px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.10);
+  background: rgba(0,0,0,0.02);
+}
+
+.gds-tip__thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.gds-tip__ph {
+  padding: 22px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--gds-muted);
+}
+
+/* ── Toast notification ── */
+.gds-toast {
+  position: fixed;
+  bottom: var(--gds-space-6);
+  right: var(--gds-space-6);
+  z-index: 9900;
+  display: flex;
+  align-items: center;
+  gap: var(--gds-space-2);
+  padding: 10px var(--gds-space-4);
+  background: var(--gds-surface);
+  border: 1px solid var(--gds-success-border);
+  border-radius: var(--gds-radius-md);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);
+  font-size: var(--gds-text-sm);
+  font-weight: 500;
+  color: var(--gds-success);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
+  will-change: opacity, transform;
+}
+
+.gds-toast.is-hidden {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.gds-toast__icon {
+  flex-shrink: 0;
+  color: var(--gds-success);
+}
+
+/* ── File-preview lightbox ─────────────────────────────────────── */
+.gds-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.22s ease;
+  pointer-events: none;
+}
+
+.gds-lightbox--open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.gds-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.gds-lightbox-modal {
+  position: relative;
+  width: 90vw;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--gds-radius-md, 8px);
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.gds-lightbox-modal iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+  display: block;
+}
+
+.gds-lightbox-close {
+  position: absolute;
+  top: -16px;
+  right: -16px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.gds-lightbox-close:hover,
+.gds-lightbox-close:focus-visible {
+  background: #333;
+  transform: scale(1.1);
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
