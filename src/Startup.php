@@ -12,6 +12,7 @@ final class Startup {
   public static function connect(array $config): array {
     Auth::startSession();
     $db = new Database($config);
+    $db->ensureApplicationTablesExist();
     Branding::ensureSchema($db);
     $projects = new Projects($db, $config);
     $ndaSigning = new NdaSigning($db, $config);

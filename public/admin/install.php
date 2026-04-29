@@ -3,22 +3,7 @@
 require_once __DIR__ . '/_bootstrap.php';
 
 // One-time installer: creates the first admin if none exist.
-// If schema.sql was never imported, the SELECT below used to throw and return HTTP 500.
-try {
-  $db->ensureAdminsTableExists();
-} catch (Throwable $e) {
-  http_response_code(500);
-  header('Content-Type: text/html; charset=utf-8');
-  $debug = filter_var($config['debug'] ?? false, FILTER_VALIDATE_BOOLEAN);
-  echo '<!doctype html><meta charset="utf-8"><title>Install</title>';
-  echo '<h1>Could not prepare database</h1>';
-  echo '<p>The installer could not create the <code>admins</code> table. Import <code>schema.sql</code> in phpMyAdmin, '
-    . 'or grant this MySQL user <code>CREATE</code> on your database.</p>';
-  if ($debug) {
-    echo '<pre>' . htmlspecialchars($e->getMessage()) . '</pre>';
-  }
-  exit;
-}
+// Core tables are created on every bootstrap via Database::ensureApplicationTablesExist().
 
 $existing = $db->fetchOne('SELECT id FROM admins ORDER BY id ASC LIMIT 1');
 
