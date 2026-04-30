@@ -99,19 +99,22 @@ function ensureXlsxPreviewPdf(array $config, Projects $projects, int $projectId,
   try {
     $gotenbergUrl = trim((string)($config['gotenberg_url'] ?? ''));
     if ($gotenbergUrl !== '') {
-      $endpoint = rtrim($gotenbergUrl, '/') . '/forms/libreoffice/convert';
-      $landscape = !empty($config['xlsx_pdf_landscape']) ? 'true' : 'false';
-      $singlePageSheets = !empty($config['xlsx_pdf_single_page_sheets']) ? 'true' : 'false';
-      $cmd = 'curl -fsS'
-        . ' -o ' . escapeshellarg($tmpPdf)
-        . ' -F ' . escapeshellarg('files=@' . $convPath)
-        . ' -F ' . escapeshellarg('landscape=' . $landscape)
-        . ' -F ' . escapeshellarg('singlePageSheets=' . $singlePageSheets)
-        . ' ' . escapeshellarg($endpoint);
-      $outLines = [];
-      $rc = 0;
-      @exec($cmd, $outLines, $rc);
-      $built = ($rc === 0 && is_file($tmpPdf) && filesize($tmpPdf) > 1000);
+      $built = Util::gotenbergLibreofficeConvertToFile($gotenbergUrl, $convPath, $tmpPdf, $config);
+      if (!$built) {
+        $endpoint = rtrim($gotenbergUrl, '/') . '/forms/libreoffice/convert';
+        $landscape = !empty($config['xlsx_pdf_landscape']) ? 'true' : 'false';
+        $singlePageSheets = !empty($config['xlsx_pdf_single_page_sheets']) ? 'true' : 'false';
+        $cmd = 'curl -fsS'
+          . ' -o ' . escapeshellarg($tmpPdf)
+          . ' -F ' . escapeshellarg('files=@' . $convPath)
+          . ' -F ' . escapeshellarg('landscape=' . $landscape)
+          . ' -F ' . escapeshellarg('singlePageSheets=' . $singlePageSheets)
+          . ' ' . escapeshellarg($endpoint);
+        $outLines = [];
+        $rc = 0;
+        @exec($cmd, $outLines, $rc);
+        $built = ($rc === 0 && is_file($tmpPdf) && filesize($tmpPdf) > 1000);
+      }
     }
     if (!$built) {
       $soffice = Util::resolveSofficePath($config);

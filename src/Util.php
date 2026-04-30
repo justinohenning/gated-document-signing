@@ -224,6 +224,69 @@ final class Util {
   }
 
   /**
+   * POST spreadsheet to Gotenberg /forms/libreoffice/convert and write the PDF to $outputPath.
+   * Uses PHP curl (correct multipart) so singlePageSheets/landscape are not mangled by shell quoting.
+   *
+   * @return bool true when a PDF was written and looks valid
+   */
+  public static function gotenbergLibreofficeConvertToFile(
+    string $gotenbergBaseUrl,
+    string $inputPath,
+    string $outputPath,
+    array $config,
+  ): bool {
+    if (!is_file($inputPath) || !is_readable($inputPath)) {
+      return false;
+    }
+    if (!function_exists('curl_init') || !class_exists('CURLFile')) {
+      return false;
+    }
+    $endpoint = rtrim($gotenbergBaseUrl, '/') . '/forms/libreoffice/convert';
+    $mime = 'application/octet-stream';
+    if (function_exists('finfo_open')) {
+      $fi = @finfo_open(FILEINFO_MIME_TYPE);
+      if ($fi !== false) {
+        $m = @finfo_file($fi, $inputPath);
+        if (is_string($m) && $m !== '') {
+          $mime = $m;
+        }
+        finfo_close($fi);
+      }
+    }
+    $cfile = new \CURLFile($inputPath, $mime, basename($inputPath));
+    $post = [
+      'files' => $cfile,
+      'landscape' => !empty($config['xlsx_pdf_landscape']) ? 'true' : 'false',
+      'singlePageSheets' => !empty($config['xlsx_pdf_single_page_sheets']) ? 'true' : 'false',
+    ];
+    $ch = curl_init($endpoint);
+    if ($ch === false) {
+      return false;
+    }
+    curl_setopt_array($ch, [
+      CURLOPT_POST => true,
+      CURLOPT_POSTFIELDS => $post,
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_FOLLOWLOCATION => true,
+      CURLOPT_TIMEOUT => 300,
+      CURLOPT_CONNECTTIMEOUT => 30,
+    ]);
+    $body = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($body === false || $code !== 200) {
+      return false;
+    }
+    if (strlen($body) < 8 || substr($body, 0, 4) !== '%PDF') {
+      return false;
+    }
+    if (@file_put_contents($outputPath, $body) === false) {
+      return false;
+    }
+    return is_file($outputPath) && filesize($outputPath) > 1000;
+  }
+
+  /**
    * Suffix for cached XLSX→PDF preview files (invalidates when export rules change).
    *
    * @return non-empty-string|''
@@ -241,6 +304,10 @@ final class Util {
     }
     if (!empty($config['xlsx_pdf_single_page_sheets']) && self::xlsxOoxmlFitToPageEnabled($config)) {
       $parts[] = 'ft';
+    }
+    $g = trim((string)($config['gotenberg_url'] ?? ''));
+    if ($g !== '') {
+      $parts[] = 'gc';
     }
     return $parts === [] ? '' : ('_' . implode('_', $parts));
   }
@@ -438,14 +505,21 @@ final class Util {
     }
     $xp = new \DOMXPath($dom);
     // local-name() — some workbooks use different xmlns prefixes than m:/r:
+    // Case-insensitive @state (some exports use different casing).
     $hidden = $xp->query(
-      '//*[local-name()="sheets"]/*[local-name()="sheet" and (@state="hidden" or @state="veryHidden")]',
+      '//*[local-name()="sheets"]/*[local-name()="sheet" and ('
+      . 'translate(@state,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="hidden" or '
+      . 'translate(@state,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="veryhidden"'
+      . ')]',
     );
     if ($hidden === false || $hidden->length === 0) {
       return null;
     }
     $visible = $xp->query(
-      '//*[local-name()="sheets"]/*[local-name()="sheet" and not(@state="hidden") and not(@state="veryHidden")]',
+      '//*[local-name()="sheets"]/*[local-name()="sheet" and not('
+      . 'translate(@state,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="hidden" or '
+      . 'translate(@state,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="veryhidden"'
+      . ')]',
     );
     if ($visible === false || $visible->length < 1) {
       return null;
