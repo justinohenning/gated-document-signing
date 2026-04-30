@@ -19,16 +19,21 @@ if ($view === 'login') {
 
   $error = '';
   if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    $email = strtolower(trim((string)($_POST['email'] ?? '')));
-    $pass = (string)($_POST['password'] ?? '');
-
-    $row = $db->fetchOne('SELECT * FROM admins WHERE email = :e LIMIT 1', [':e' => $email]);
-    if (!$row || !password_verify($pass, (string)$row['password_hash'])) {
-      $error = 'Invalid email or password.';
+    if (!Auth::verifyCsrfToken((string)($_POST['_csrf'] ?? ''))) {
+      $error = 'Invalid session token. Please refresh and try again.';
     } else {
-      Auth::setAdminId((int)$row['id']);
-      header('Location: index.php');
-      exit;
+      $email = strtolower(trim((string)($_POST['email'] ?? '')));
+      $pass = (string)($_POST['password'] ?? '');
+
+      $row = $db->fetchOne('SELECT * FROM admins WHERE email = :e LIMIT 1', [':e' => $email]);
+      if (!$row || !password_verify($pass, (string)$row['password_hash'])) {
+        $error = 'Invalid email or password.';
+      } else {
+        Auth::setAdminId((int)$row['id']);
+        session_regenerate_id(true);
+        header('Location: index.php');
+        exit;
+      }
     }
   }
 
@@ -38,6 +43,7 @@ if ($view === 'login') {
   echo '<p class="gds-lead">Use your administrator email and password.</p>';
   if ($error !== '') echo '<div class="err gds-flash"><strong>' . Util::h($error) . '</strong></div>';
   echo '<form method="post">';
+  echo Auth::csrfFieldHtml();
   echo '<div class="gds-field"><label class="gds-label" for="admin_login_email">Email</label>';
   echo '<input id="admin_login_email" name="email" type="email" required autocomplete="username" /></div>';
   echo '<div class="gds-field"><label class="gds-label" for="admin_login_password">Password</label>';
@@ -50,6 +56,16 @@ if ($view === 'login') {
 }
 
 Auth::requireAdmin();
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+  $skipPostCsrf = isset($_GET['api']) && (string)$_GET['api'] === 'save_nda_fields';
+  if (!$skipPostCsrf && !Auth::verifyCsrfToken((string)($_POST['_csrf'] ?? ''))) {
+    http_response_code(403);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Invalid or missing CSRF token.';
+    exit;
+  }
+}
 
 function requireIntParam(string $key): int {
   return (int)($_REQUEST[$key] ?? 0);
@@ -162,6 +178,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) 
 // Save NDA field placement (JSON)
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_GET['api']) && $_GET['api'] === 'save_nda_fields') {
   $data = requireJsonBody();
+  if (!Auth::verifyCsrfToken((string)($data['_csrf'] ?? ''))) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'csrf'], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
   $pid = (int)($data['project_id'] ?? 0);
   $defs = $data['defs'] ?? null;
 
@@ -199,10 +221,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_GET['api']) && $
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_nda') {
   $pid = (int)($_POST['project_id'] ?? 0);
   if ($pid > 0 && isset($_FILES['nda_pdf']) && is_uploaded_file($_FILES['nda_pdf']['tmp_name'])) {
+    $tmp = $_FILES['nda_pdf']['tmp_name'];
+    $fh = @fopen($tmp, 'rb');
+    $magicOk = false;
+    if ($fh) {
+      $magicOk = (fread($fh, 4) === '%PDF');
+      fclose($fh);
+    }
+    $mimeOk = !function_exists('finfo_open');
+    if (function_exists('finfo_open')) {
+      $fi = finfo_open(FILEINFO_MIME_TYPE);
+      if ($fi) {
+        $mt = finfo_file($fi, $tmp);
+        finfo_close($fi);
+        $mimeOk = ($mt === 'application/pdf' || $mt === 'application/x-pdf');
+      }
+    }
+    if (!$magicOk || !$mimeOk) {
+      header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=documents&nda_err=mime');
+      exit;
+    }
     $dirs = $projects->ensureProjectDirs($pid);
     $orig = (string)$_FILES['nda_pdf']['name'];
     $dest = $dirs['nda'] . '/nda_' . time() . '.pdf';
-    move_uploaded_file($_FILES['nda_pdf']['tmp_name'], $dest);
+    move_uploaded_file($tmp, $dest);
     $projects->attachNda($pid, $orig, $dest);
   }
   header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=documents&toast=1');
@@ -217,6 +259,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) 
     $orig = (string)$_FILES['project_file']['name'];
     $size = (int)$_FILES['project_file']['size'];
     $safeName = preg_replace('/[^a-z0-9._-]+/i', '_', $orig);
+    $ext = strtolower(pathinfo($safeName, PATHINFO_EXTENSION));
+    $blocked = ['php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'shtml', 'sh', 'bash', 'exe', 'bat', 'cmd', 'com', 'msi', 'htaccess', 'htpasswd', 'cgi', 'pl', 'jsp', 'asp', 'aspx'];
+    if ($ext !== '' && in_array($ext, $blocked, true)) {
+      header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=documents&file_err=ext');
+      exit;
+    }
     $dest = $dirs['files'] . '/' . time() . '_' . $safeName;
     move_uploaded_file($_FILES['project_file']['tmp_name'], $dest);
     $projects->addFile($pid, $orig, $dest, $size);
@@ -393,6 +441,7 @@ if ($view === 'nda-fields') {
   echo '<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>';
   echo '<script>';
   echo 'const PROJECT_ID = ' . $pidEsc . ';';
+  echo 'const CSRF_TOKEN = ' . json_encode(Auth::csrfToken()) . ';';
   echo 'const NDA_URL = ' . json_encode($ndaUrl, JSON_UNESCAPED_SLASHES) . ';';
   echo 'const existing = ' . ($existingJson ?: '[]') . ';';
   echo '
@@ -707,7 +756,7 @@ saveBtn.addEventListener("click", async () => {
     const res = await fetch("index.php?api=save_nda_fields", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project_id: PROJECT_ID, defs })
+      body: JSON.stringify({ project_id: PROJECT_ID, defs, _csrf: CSRF_TOKEN })
     });
     const j = await res.json().catch(() => null);
     if (!res.ok || !j || !j.ok) {
@@ -769,6 +818,7 @@ if ($view === 'admins') {
       echo '<tr><td>' . $em . '</td><td class="muted">' . $cr . '</td><td class="gds-table-actions">';
       if ((int)Auth::adminId() !== $aid) {
         echo '<form method="post" style="display:inline" onsubmit="return confirm(\'Remove this administrator?\');">';
+        echo Auth::csrfFieldHtml();
         echo '<input type="hidden" name="action" value="delete_admin" />';
         echo '<input type="hidden" name="admin_id" value="' . $aid . '" />';
         echo '<button type="submit" class="btn btn-secondary gds-btn--compact">Remove</button>';
@@ -786,6 +836,7 @@ if ($view === 'admins') {
   echo '<hr class="gds-divider" />';
   echo '<h3 class="gds-section-title">Add administrator</h3>';
   echo '<form method="post">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="add_admin" />';
   echo '<div class="row">';
   echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="new_admin_email">Email</label>';
@@ -828,6 +879,7 @@ if ($view === 'branding') {
   echo '<p class="gds-lead">Rename the product and optionally add a logo. Signers see these on the visitor pages; the admin console uses the same name and logo with a separate subtitle.</p>';
 
   echo '<form method="post">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="save_branding" />';
   echo '<div class="gds-field"><label class="gds-label" for="app_name">Application name</label>';
   echo '<input id="app_name" name="app_name" type="text" required value="' . Util::h((string)$b['app_name']) . '" maxlength="255" /></div>';
@@ -846,11 +898,13 @@ if ($view === 'branding') {
   if (!empty($b['logo_path'])) {
     echo '<p style="margin:0 0 var(--gds-space-3)"><img src="' . Util::h(Branding::logoHref(false)) . '" alt="Current logo" class="gds-logo-preview" /></p>';
     echo '<form method="post" style="margin-bottom:var(--gds-space-4)" onsubmit="return confirm(\'Remove the custom logo?\');">';
+    echo Auth::csrfFieldHtml();
     echo '<input type="hidden" name="action" value="remove_brand_logo" />';
     echo '<button type="submit" class="btn btn-secondary">Remove logo</button>';
     echo '</form>';
   }
   echo '<form method="post" enctype="multipart/form-data">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="upload_brand_logo" />';
   echo '<div class="gds-field"><label class="gds-label" for="brand_logo">Upload logo</label>';
   echo '<input id="brand_logo" name="logo" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.png,.jpg,.jpeg,.gif,.webp,.svg" required /></div>';
@@ -1542,7 +1596,12 @@ if ($view === 'analytics_user') {
       setThumbLoading();
 
       try {
-        if (vk === 'image') {
+        if (vk === 'video' || vk === 'audio') {
+          var icon = vk === 'video'
+            ? '<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" width="56" height="56"><rect width="48" height="48" rx="10" fill="currentColor" opacity=".1"/><polygon points="18,14 38,24 18,34" fill="currentColor" opacity=".6"/></svg>'
+            : '<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" width="56" height="56"><rect width="48" height="48" rx="10" fill="currentColor" opacity=".1"/><path d="M16 30V18l20-4v16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity=".6"/><circle cx="12" cy="30" r="4" stroke="currentColor" stroke-width="2.5" opacity=".6"/><circle cx="32" cy="26" r="4" stroke="currentColor" stroke-width="2.5" opacity=".6"/></svg>';
+          thumbEl.innerHTML = '<div class="gds-tip__ph" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--color-muted)">' + icon + '</div>';
+        } else if (vk === 'image') {
           var imgUrl = mediaUrl({ doc_kind: 'file', file_id: String(fileId), mode: 'image' });
           setThumbImage(imgUrl);
         } else if (vk === 'sheet') {
@@ -1621,6 +1680,12 @@ if ($view === 'project') {
   $panelSignedHidden = $tab === 'signed' ? '' : ' hidden';
 
   adminHeader('Project');
+  if (isset($_GET['nda_err']) && (string)$_GET['nda_err'] === 'mime') {
+    echo '<div class="err gds-flash"><strong>NDA must be a valid PDF file.</strong></div>';
+  }
+  if (isset($_GET['file_err']) && (string)$_GET['file_err'] === 'ext') {
+    echo '<div class="err gds-flash"><strong>That file type is not allowed.</strong></div>';
+  }
   echo '<div class="gds-page-header">';
   echo '<div><h2 class="gds-page-title">' . Util::h((string)$proj['name']) . '</h2><p class="gds-lead" style="margin-bottom:0">Project ID ' . (int)$proj['id'] . '</p></div>';
   echo '<a href="index.php" class="gds-link-back">← Back to dashboard</a>';
@@ -1669,6 +1734,7 @@ if ($view === 'project') {
     echo '<div class="err gds-flash"><strong>No NDA uploaded yet.</strong></div>';
   }
   echo '<form method="post" enctype="multipart/form-data" data-auto-upload="1">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="upload_nda" />';
   echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
   echo '<div class="dropzone" data-dz="nda">';
@@ -1686,6 +1752,7 @@ if ($view === 'project') {
   echo '<hr class="gds-divider" />';
   echo '<div class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Project files</div>';
   echo '<form method="post" enctype="multipart/form-data" data-auto-upload="1">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="upload_file" />';
   echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
   echo '<div class="dropzone" data-dz="file">';
@@ -1707,6 +1774,7 @@ if ($view === 'project') {
     echo '<button type="button" class="btn btn-secondary" id="gdsSaveFileOrderBtn">Save order</button>';
     echo '</div>';
     echo '<form method="post" id="deleteProjectFilesForm">';
+    echo Auth::csrfFieldHtml();
     echo '<input type="hidden" name="action" value="delete_project_files" />';
     echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
     echo '<div class="gds-table-wrap"><table><thead><tr>';
@@ -1753,6 +1821,7 @@ if ($view === 'project') {
     echo '</div>';
     echo '</form>';
     echo '<form method="post" id="gdsReorderFilesForm" style="display:none" aria-hidden="true">';
+    echo Auth::csrfFieldHtml();
     echo '<input type="hidden" name="action" value="reorder_project_files" />';
     echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
     echo '</form>';
@@ -1811,6 +1880,7 @@ HTML;
 
   echo '<div id="panel-settings" class="gds-admin-tab-panel" role="tabpanel" aria-labelledby="tabBtn-settings"' . $panelSettingsHidden . '>';
   echo '<form method="post">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="update_project_settings" />';
   echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
   echo '<div style="display:flex;flex-direction:column;gap:10px">';
@@ -1842,6 +1912,7 @@ HTML;
     echo '<div class="muted" style="margin-bottom:10px">No watermark uploaded yet.</div>';
   }
   echo '<form method="post" enctype="multipart/form-data" data-auto-upload="1">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="upload_watermark" />';
   echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
   echo '<div class="dropzone" data-dz="wm">';
@@ -2023,6 +2094,7 @@ echo '<h2 class="gds-page-title">Projects</h2>';
 echo '<p class="gds-lead">Create a project for each deal or workspace, then upload an NDA and files for signers.</p>';
 
 echo '<form method="post">';
+echo Auth::csrfFieldHtml();
 echo '<input type="hidden" name="action" value="create_project" />';
 echo '<div class="row" style="align-items:flex-end">';
 echo '<div class="gds-field" style="margin-bottom:0;flex:2;min-width:200px"><label class="gds-label" for="new_project_name">New project</label>';

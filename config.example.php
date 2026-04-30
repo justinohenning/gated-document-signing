@@ -10,8 +10,11 @@ return [
   ],
   // Change this to a long random string in config.php (never commit real secrets).
   'app_secret' => 'change-me',
+  // Set to true only while running public/admin/install.php for first-time setup, then set false or remove.
+  'install_enabled' => false,
   // Set true temporarily on a broken install to see startup errors as plain text (disable after fixing).
   'debug' => false,
+  // Behind a reverse proxy that terminates TLS, you may rely on X-Forwarded-Proto (see Auth::cookieSecureDefault).
   'base_url' => '', // e.g. "https://example.com/gated-signing" (no trailing slash). Leave blank to auto-detect.
   // Optional: explicit public URL for generated share links.
   // Example dev: "http://127.0.0.1:8008"

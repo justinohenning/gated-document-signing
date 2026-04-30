@@ -109,13 +109,17 @@ final class Branding {
       if ($body === false || stripos($body, '<svg') === false) {
         throw new \InvalidArgumentException('Invalid SVG file.');
       }
+      $sanitized = self::sanitizeSvgXml($body);
       $dest = $dir . '/logo.svg';
-      if (!move_uploaded_file($tmpPath, $dest) && !@rename($tmpPath, $dest)) {
-        if (!@copy($tmpPath, $dest)) {
-          throw new \RuntimeException('Could not save logo.');
+      foreach (glob($dir . '/logo.*') ?: [] as $old) {
+        if (is_file($old) && $old !== $dest) {
+          @unlink($old);
         }
-        @unlink($tmpPath);
       }
+      if (file_put_contents($dest, $sanitized) === false) {
+        throw new \RuntimeException('Could not save logo.');
+      }
+      @unlink($tmpPath);
       return $dest;
     }
     $info = @getimagesize($tmpPath);
@@ -145,6 +149,75 @@ final class Branding {
       @unlink($tmpPath);
     }
     return $dest;
+  }
+
+  /**
+   * Strip scripts, event handlers, and dangerous URLs from SVG markup before storage/serving.
+   */
+  private static function sanitizeSvgXml(string $body): string {
+    $prev = libxml_use_internal_errors(true);
+    $dom = new \DOMDocument();
+    $loaded = $dom->loadXML($body, LIBXML_NONET);
+    libxml_clear_errors();
+    libxml_use_internal_errors($prev);
+    if (!$loaded) {
+      throw new \InvalidArgumentException('Invalid SVG file.');
+    }
+    $root = $dom->documentElement;
+    if (!$root || strtolower($root->nodeName) !== 'svg') {
+      throw new \InvalidArgumentException('Invalid SVG root.');
+    }
+    self::stripDangerousSvgContent($dom);
+    $out = $dom->saveXML($root);
+    if ($out === false || $out === '') {
+      throw new \RuntimeException('Could not serialize SVG.');
+    }
+    return $out;
+  }
+
+  private static function stripDangerousSvgContent(\DOMDocument $dom): void {
+    foreach (['script', 'foreignObject', 'iframe'] as $tag) {
+      $list = $dom->getElementsByTagName($tag);
+      $nodes = [];
+      for ($i = 0; $i < $list->length; $i++) {
+        $nodes[] = $list->item($i);
+      }
+      foreach ($nodes as $n) {
+        if ($n !== null && $n->parentNode !== null) {
+          $n->parentNode->removeChild($n);
+        }
+      }
+    }
+
+    $xp = new \DOMXPath($dom);
+    $all = $xp->query('//*');
+    if ($all === false) {
+      return;
+    }
+    for ($i = 0; $i < $all->length; $i++) {
+      $el = $all->item($i);
+      if (!$el instanceof \DOMElement) {
+        continue;
+      }
+      $toDrop = [];
+      foreach ($el->attributes ?? [] as $a) {
+        $name = $a->nodeName;
+        $ln = strtolower($name);
+        if (str_starts_with($ln, 'on')) {
+          $toDrop[] = $name;
+          continue;
+        }
+        if ($ln === 'href' || str_ends_with($ln, ':href')) {
+          $v = trim((string)$el->getAttribute($name));
+          if ($v !== '' && preg_match('/^\s*(javascript|data):/i', $v)) {
+            $toDrop[] = $name;
+          }
+        }
+      }
+      foreach ($toDrop as $name) {
+        $el->removeAttribute($name);
+      }
+    }
   }
 
   public static function removeLogoFile(array $config, ?string $absolutePath): void {

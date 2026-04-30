@@ -49,6 +49,12 @@ $email = Auth::visitorEmail($projectId);
 
 // Email capture
 if ($email === null && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'set_email') {
+  if (!Auth::verifyCsrfToken((string)($_POST['_csrf'] ?? ''))) {
+    http_response_code(403);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Session expired. Please refresh and try again.';
+    exit;
+  }
   $e = trim((string)($_POST['email'] ?? ''));
   $e = strtolower($e);
   if (!filter_var($e, FILTER_VALIDATE_EMAIL)) {
@@ -66,11 +72,13 @@ if ($email === null) {
   renderHeader('Enter email');
   renderAnalyticsTracker($projectToken, 'email_gate', null);
   $pn = Util::h((string)$project['name']);
+  $csrfField = Auth::csrfFieldHtml();
   echo <<<HTML
 <div class="card">
   <h2 class="gds-page-title">{$pn}</h2>
   <p class="gds-lead">Enter your email to continue. If you've already signed, you'll go straight to the files.</p>
   <form method="post">
+    {$csrfField}
     <input type="hidden" name="action" value="set_email" />
     <div class="row" style="align-items:flex-end">
       <div class="gds-field" style="margin-bottom:0">
@@ -105,6 +113,12 @@ $signFlowRedirect = function () use ($projectToken, $accessToken): void {
 };
 
 if (!$signed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action'])) {
+  if (!Auth::verifyCsrfToken((string)($_POST['_csrf'] ?? ''))) {
+    http_response_code(403);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Session expired. Please refresh and try again.';
+    exit;
+  }
   $act = (string)$_POST['action'];
   if ($act === 'sign_step_back') {
     $to = (int)($_POST['step_to'] ?? 2);
@@ -160,6 +174,12 @@ if (!$signed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST
 
 // Handle signing submit (step 3)
 if (!$signed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'sign_nda') {
+  if (!Auth::verifyCsrfToken((string)($_POST['_csrf'] ?? ''))) {
+    http_response_code(403);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Session expired. Please refresh and try again.';
+    exit;
+  }
   $sig = (string)($_POST['signature_png'] ?? '');
   $signedPdfB64 = (string)($_POST['signed_pdf_b64'] ?? '');
   $accept = (string)($_POST['accept'] ?? '');
@@ -423,6 +443,7 @@ if ($step === 1) {
   $dp = is_array($draft) ? Util::h((string)($draft['position'] ?? '')) : '';
   $da = is_array($draft) ? Util::h((string)($draft['address'] ?? '')) : '';
   echo '<form method="post">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="sign_step1" />';
   echo '<div class="row">';
   echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="signer_name">Full name</label><input id="signer_name" name="signer_name" required value="' . $dn . '" autocomplete="name" /></div>';
@@ -439,7 +460,7 @@ if ($step === 1) {
 if ($step === 2) {
   $renderStepper(2);
   echo '<div class="gds-sign-toolbar">';
-  echo '<form method="post" style="margin:0"><input type="hidden" name="action" value="sign_step_back" /><input type="hidden" name="step_to" value="1" /><button type="submit" class="btn btn-secondary">Back</button></form>';
+  echo '<form method="post" style="margin:0">' . Auth::csrfFieldHtml() . '<input type="hidden" name="action" value="sign_step_back" /><input type="hidden" name="step_to" value="1" /><button type="submit" class="btn btn-secondary">Back</button></form>';
   echo '<a href="' . Util::h($ndaViewerHref) . '" class="muted">Open full-screen NDA</a>';
   echo '</div>';
 
@@ -452,6 +473,7 @@ if ($step === 2) {
   $draftJson = json_encode($draftForJs, JSON_UNESCAPED_SLASHES) ?: '{}';
 
   echo '<form method="post">';
+  echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="sign_step2" />';
 
   if ($freeTextDefs) {
@@ -627,7 +649,7 @@ JSEOF;
 // Step 3: signature + agreement
 $renderStepper(3);
 echo '<div class="gds-sign-toolbar">';
-echo '<form method="post" style="margin:0"><input type="hidden" name="action" value="sign_step_back" /><input type="hidden" name="step_to" value="2" /><button type="submit" class="btn btn-secondary">Back</button></form>';
+echo '<form method="post" style="margin:0">' . Auth::csrfFieldHtml() . '<input type="hidden" name="action" value="sign_step_back" /><input type="hidden" name="step_to" value="2" /><button type="submit" class="btn btn-secondary">Back</button></form>';
 echo '<a href="' . Util::h($ndaViewerHref) . '" class="muted">Open full-screen NDA</a>';
 echo '</div>';
 
@@ -635,8 +657,9 @@ $dName = is_array($draft) ? Util::h((string)($draft['name'] ?? '')) : '';
 $dPos = is_array($draft) ? Util::h((string)($draft['position'] ?? '')) : '';
 $dAddr = is_array($draft) ? Util::h((string)($draft['address'] ?? '')) : '';
 
+echo '<form method="post" id="gdsSignForm">';
+echo Auth::csrfFieldHtml();
 echo <<<HTML
-<form method="post" id="gdsSignForm">
   <input type="hidden" name="action" value="sign_nda" />
   <input type="hidden" name="signer_name" value="{$dName}" />
   <input type="hidden" name="signer_position" value="{$dPos}" />

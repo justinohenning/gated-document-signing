@@ -1,6 +1,9 @@
 <?php
 
 final class NdaSigning {
+  /** Access links (?t=) expire after this many days from token creation. */
+  private const TOKEN_TTL_DAYS = 90;
+
   public function __construct(private Database $db, private array $config) {}
 
   public function hasSigned(int $projectId, string $email): bool {
@@ -39,15 +42,20 @@ final class NdaSigning {
   public function validateAccessToken(int $projectId, string $token): ?string {
     $hash = hash('sha256', $token . '|' . $this->config['app_secret']);
     $row = $this->db->fetchOne(
-      'SELECT signer_email FROM access_tokens WHERE project_id = :pid AND token_hash = :th LIMIT 1',
+      'SELECT signer_email, created_at FROM access_tokens WHERE project_id = :pid AND token_hash = :th LIMIT 1',
       [':pid' => $projectId, ':th' => $hash],
     );
     if (!$row) return null;
+    $createdTs = strtotime((string)($row['created_at'] ?? ''));
+    $maxAge = self::TOKEN_TTL_DAYS * 86400;
+    if ($createdTs === false || (time() - $createdTs) > $maxAge) {
+      return null;
+    }
     $this->db->exec(
       'UPDATE access_tokens SET last_used_at = UTC_TIMESTAMP() WHERE project_id = :pid AND token_hash = :th',
       [':pid' => $projectId, ':th' => $hash],
     );
-    return (string)$row['signer_email'];
+    return (string)($row['signer_email'] ?? '');
   }
 
   public function saveSignaturePng(string $dataUrlPng, string $destPath): void {

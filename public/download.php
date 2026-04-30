@@ -320,7 +320,56 @@ if ($mode === 'view_pdf' && $previewProfile !== null && $previewProfile['kind'] 
 }
 
 if ($mode === 'view' && $previewProfile !== null) {
-  header('Content-Type: ' . $previewProfile['mime']);
+  $mime = $previewProfile['mime'];
+  $kind = $previewProfile['kind'];
+
+  // Video and audio need range-request support so the browser can seek.
+  if ($kind === 'video' || $kind === 'audio') {
+    $fileSize = $size ?: 0;
+    $rangeHeader = $_SERVER['HTTP_RANGE'] ?? '';
+    $start = 0;
+    $end   = max(0, $fileSize - 1);
+    $isRange = false;
+
+    if ($rangeHeader !== '' && preg_match('/bytes=(\d*)-(\d*)/i', $rangeHeader, $rm)) {
+      $isRange = true;
+      $start = $rm[1] !== '' ? (int)$rm[1] : 0;
+      $end   = $rm[2] !== '' ? (int)$rm[2] : max(0, $fileSize - 1);
+      $end   = min($end, max(0, $fileSize - 1));
+      $start = min($start, $end);
+    }
+
+    $length = $end - $start + 1;
+    header('Content-Type: ' . $mime);
+    header('Content-Disposition: inline; filename="' . basename($originalName) . '"');
+    header('Accept-Ranges: bytes');
+    header('Cache-Control: private, no-store, max-age=0');
+    header('X-Content-Type-Options: nosniff');
+
+    if ($isRange) {
+      http_response_code(206);
+      header("Content-Range: bytes $start-$end/$fileSize");
+      header('Content-Length: ' . $length);
+      $fp = fopen($path, 'rb');
+      if ($fp) {
+        fseek($fp, $start);
+        $remaining = $length;
+        while ($remaining > 0 && !feof($fp)) {
+          $chunk = fread($fp, min(65536, $remaining));
+          if ($chunk === false) break;
+          echo $chunk;
+          $remaining -= strlen($chunk);
+        }
+        fclose($fp);
+      }
+    } else {
+      header('Content-Length: ' . $fileSize);
+      readfile($path);
+    }
+    exit;
+  }
+
+  header('Content-Type: ' . $mime);
   header('Content-Disposition: inline; filename="' . basename($originalName) . '"');
   header('Content-Length: ' . $size);
   header('Cache-Control: private, no-store, max-age=0');

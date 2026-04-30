@@ -185,6 +185,8 @@ $htmlSheetAreaDisplay = $viewerKind === 'sheet' ? 'block' : 'none';
 $htmlImageAreaDisplay = $viewerKind === 'image' ? 'flex' : 'none';
 $htmlDocxAreaDisplay = $viewerKind === 'docx' ? 'block' : 'none';
 $htmlTextAreaDisplay = $viewerKind === 'text' ? 'block' : 'none';
+$htmlVideoAreaDisplay = $viewerKind === 'video' ? 'flex' : 'none';
+$htmlAudioAreaDisplay = $viewerKind === 'audio' ? 'flex' : 'none';
 $pdfScriptTag = $viewerKind === 'pdf'
   ? '<script src="assets/vendor/pdf.min.js"></script>'
   : '';
@@ -239,6 +241,63 @@ echo <<<HTML
   <div id="textArea" class="gds-viewer-pane" style="display:{$htmlTextAreaDisplay}">
     <pre id="textHost" style="max-height:min(70vh,900px);overflow:auto;margin:0;background:var(--gds-surface);border:1px solid var(--gds-border);border-radius:var(--gds-radius-lg);box-shadow:var(--gds-shadow-card);padding:14px 16px;font-size:var(--gds-text-sm);line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--gds-text)"></pre>
   </div>
+
+  <div id="videoArea" class="gds-viewer-pane" style="display:{$htmlVideoAreaDisplay};justify-content:center;align-items:flex-start;padding:18px 0">
+    <div class="gds-media-player gds-media-player--video">
+      <video id="gdsVideo" preload="metadata" style="display:block;width:100%;max-height:60vh;border-radius:var(--gds-radius-lg);background:#000;outline:none"></video>
+      <div class="gds-media-controls" id="videoControls">
+        <button class="gds-media-btn" id="vPlayBtn" aria-label="Play" title="Play / Pause">
+          <svg class="gds-media-icon gds-play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+          <svg class="gds-media-icon gds-pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+        <span class="gds-media-time" id="vCurrentTime">0:00</span>
+        <div class="gds-media-progress" id="vProgressWrap" role="slider" aria-label="Seek" tabindex="0">
+          <div class="gds-media-progress-bg"></div>
+          <div class="gds-media-progress-fill" id="vProgress" style="width:0%"></div>
+          <div class="gds-media-progress-thumb" id="vThumb" style="left:0%"></div>
+        </div>
+        <span class="gds-media-time gds-media-dur" id="vDuration">0:00</span>
+        <button class="gds-media-btn" id="vMuteBtn" aria-label="Mute" title="Mute">
+          <svg class="gds-media-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path class="gds-vol-lines" d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/><path class="gds-muted-x" d="M15 9l5 6M20 9l-5 6" style="display:none"/></svg>
+        </button>
+        <div class="gds-media-vol-wrap">
+          <input class="gds-media-vol" id="vVolume" type="range" min="0" max="1" step="0.02" value="1" aria-label="Volume" title="Volume" />
+        </div>
+        <button class="gds-media-btn" id="vFullBtn" aria-label="Fullscreen" title="Fullscreen">
+          <svg class="gds-media-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,3 21,3 21,9"/><polyline points="9,21 3,21 3,15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="audioArea" class="gds-viewer-pane" style="display:{$htmlAudioAreaDisplay};justify-content:center;align-items:center;padding:40px 18px">
+    <div class="gds-media-player gds-media-player--audio">
+      <audio id="gdsAudio" preload="metadata"></audio>
+      <div class="gds-audio-art">
+        <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:80px;height:80px;opacity:.45"><rect width="80" height="80" rx="16" fill="currentColor" opacity=".1"/><path d="M30 52V28l30-6v24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="52" r="6" stroke="currentColor" stroke-width="2.5"/><circle cx="54" cy="46" r="6" stroke="currentColor" stroke-width="2.5"/></svg>
+        <div class="gds-audio-title" id="audioTitle"></div>
+      </div>
+      <div class="gds-media-controls" id="audioControls">
+        <button class="gds-media-btn" id="aPlayBtn" aria-label="Play" title="Play / Pause">
+          <svg class="gds-media-icon gds-play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+          <svg class="gds-media-icon gds-pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+        <span class="gds-media-time" id="aCurrentTime">0:00</span>
+        <div class="gds-media-progress" id="aProgressWrap" role="slider" aria-label="Seek" tabindex="0">
+          <div class="gds-media-progress-bg"></div>
+          <div class="gds-media-progress-fill" id="aProgress" style="width:0%"></div>
+          <div class="gds-media-progress-thumb" id="aThumb" style="left:0%"></div>
+        </div>
+        <span class="gds-media-time gds-media-dur" id="aDuration">0:00</span>
+        <button class="gds-media-btn" id="aMuteBtn" aria-label="Mute" title="Mute">
+          <svg class="gds-media-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path class="gds-vol-lines" d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/><path class="gds-muted-x" d="M15 9l5 6M20 9l-5 6" style="display:none"/></svg>
+        </button>
+        <div class="gds-media-vol-wrap">
+          <input class="gds-media-vol" id="aVolume" type="range" min="0" max="1" step="0.02" value="1" aria-label="Volume" title="Volume" />
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 <iframe name="gds_download_frame" title="Download" style="position:absolute;width:0;height:0;border:0;clip:rect(0,0,0,0);visibility:hidden" aria-hidden="true"></iframe>
 
@@ -256,6 +315,145 @@ echo <<<HTML
 
   const fetchOpts = { credentials: "same-origin", cache: "no-store" };
   const workerSrc = new URL("assets/vendor/pdf.worker.min.js", document.baseURI).href;
+
+  if (VIEWER_KIND === "video" || VIEWER_KIND === "audio") {
+    const isVideo = VIEWER_KIND === "video";
+    const mediaEl = document.getElementById(isVideo ? "gdsVideo" : "gdsAudio");
+    const playBtn  = document.getElementById(isVideo ? "vPlayBtn"  : "aPlayBtn");
+    const muteBtn  = document.getElementById(isVideo ? "vMuteBtn"  : "aMuteBtn");
+    const volEl    = document.getElementById(isVideo ? "vVolume"   : "aVolume");
+    const progWrap = document.getElementById(isVideo ? "vProgressWrap" : "aProgressWrap");
+    const progFill = document.getElementById(isVideo ? "vProgress" : "aProgress");
+    const progThumb= document.getElementById(isVideo ? "vThumb"    : "aThumb");
+    const curTime  = document.getElementById(isVideo ? "vCurrentTime" : "aCurrentTime");
+    const durEl    = document.getElementById(isVideo ? "vDuration"  : "aDuration");
+    const fullBtn  = isVideo ? document.getElementById("vFullBtn") : null;
+    const audioTitle = document.getElementById("audioTitle");
+
+    if (!mediaEl) return;
+
+    if (audioTitle && DOC_TITLE) audioTitle.textContent = DOC_TITLE;
+
+    // Wire source — use the same pdfUrl which for media is the view URL
+    mediaEl.src = url;
+
+    function fmtTime(s) {
+      if (!isFinite(s) || isNaN(s)) return "0:00";
+      const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+      return m + ":" + (sec < 10 ? "0" : "") + sec;
+    }
+
+    function syncPlayIcon() {
+      if (!playBtn) return;
+      const playIcon  = playBtn.querySelector(".gds-play-icon");
+      const pauseIcon = playBtn.querySelector(".gds-pause-icon");
+      if (mediaEl.paused || mediaEl.ended) {
+        if (playIcon)  playIcon.style.display  = "";
+        if (pauseIcon) pauseIcon.style.display = "none";
+      } else {
+        if (playIcon)  playIcon.style.display  = "none";
+        if (pauseIcon) pauseIcon.style.display = "";
+      }
+    }
+
+    function syncMuteIcon() {
+      if (!muteBtn) return;
+      const volLines = muteBtn.querySelectorAll(".gds-vol-lines");
+      const mutedX   = muteBtn.querySelectorAll(".gds-muted-x");
+      const muted = mediaEl.muted || mediaEl.volume === 0;
+      volLines.forEach(el => el.style.display = muted ? "none" : "");
+      mutedX.forEach(el   => el.style.display = muted ? ""     : "none");
+    }
+
+    function syncProgress() {
+      const dur = mediaEl.duration;
+      if (!dur || !isFinite(dur)) return;
+      const pct = (mediaEl.currentTime / dur) * 100;
+      if (progFill)  progFill.style.width  = pct + "%";
+      if (progThumb) progThumb.style.left  = pct + "%";
+      if (curTime)   curTime.textContent   = fmtTime(mediaEl.currentTime);
+    }
+
+    mediaEl.addEventListener("loadedmetadata", () => {
+      if (durEl) durEl.textContent = fmtTime(mediaEl.duration);
+    });
+    mediaEl.addEventListener("timeupdate", syncProgress);
+    mediaEl.addEventListener("play",   syncPlayIcon);
+    mediaEl.addEventListener("pause",  syncPlayIcon);
+    mediaEl.addEventListener("ended",  syncPlayIcon);
+    mediaEl.addEventListener("volumechange", () => {
+      syncMuteIcon();
+      if (volEl) volEl.value = String(mediaEl.muted ? 0 : mediaEl.volume);
+    });
+
+    if (playBtn) {
+      playBtn.addEventListener("click", () => {
+        if (mediaEl.paused || mediaEl.ended) mediaEl.play();
+        else mediaEl.pause();
+      });
+    }
+
+    if (muteBtn) {
+      muteBtn.addEventListener("click", () => {
+        mediaEl.muted = !mediaEl.muted;
+      });
+    }
+
+    if (volEl) {
+      volEl.addEventListener("input", () => {
+        mediaEl.volume = parseFloat(volEl.value);
+        mediaEl.muted  = parseFloat(volEl.value) === 0;
+      });
+    }
+
+    function seekFromEvent(e) {
+      const dur = mediaEl.duration;
+      if (!dur || !isFinite(dur) || !progWrap) return;
+      const rect = progWrap.getBoundingClientRect();
+      const x    = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      mediaEl.currentTime = (x / rect.width) * dur;
+      syncProgress();
+    }
+
+    if (progWrap) {
+      let dragging = false;
+      progWrap.addEventListener("mousedown", (e) => { dragging = true; seekFromEvent(e); });
+      document.addEventListener("mousemove", (e) => { if (dragging) seekFromEvent(e); });
+      document.addEventListener("mouseup",   ()  => { dragging = false; });
+      progWrap.addEventListener("touchstart", (e) => { dragging = true; seekFromEvent(e.touches[0]); }, { passive: true });
+      document.addEventListener("touchmove",  (e) => { if (dragging) seekFromEvent(e.touches[0]); }, { passive: true });
+      document.addEventListener("touchend",   ()  => { dragging = false; });
+      progWrap.addEventListener("keydown", (e) => {
+        const dur = mediaEl.duration;
+        if (!dur) return;
+        if (e.key === "ArrowLeft")  { mediaEl.currentTime = Math.max(0, mediaEl.currentTime - 5); e.preventDefault(); }
+        if (e.key === "ArrowRight") { mediaEl.currentTime = Math.min(dur, mediaEl.currentTime + 5); e.preventDefault(); }
+      });
+    }
+
+    if (fullBtn && isVideo) {
+      fullBtn.addEventListener("click", () => {
+        const wrap = mediaEl.closest(".gds-media-player") || mediaEl;
+        if (!document.fullscreenElement) {
+          wrap.requestFullscreen && wrap.requestFullscreen();
+        } else {
+          document.exitFullscreen && document.exitFullscreen();
+        }
+      });
+    }
+
+    // Space bar to toggle play/pause when player is focused
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Space" && e.target === document.body) {
+        e.preventDefault();
+        if (mediaEl.paused || mediaEl.ended) mediaEl.play();
+        else mediaEl.pause();
+      }
+    });
+
+    syncPlayIcon();
+    syncMuteIcon();
+  }
 
   if (VIEWER_KIND === "image") {
     const img = document.getElementById("previewImage");
