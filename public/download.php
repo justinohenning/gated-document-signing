@@ -259,7 +259,8 @@ if ($mode === 'view_pdf' && $previewProfile !== null && $previewProfile['kind'] 
         $rc = 0;
         @exec($cmd, $outLines, $rc);
         $built = ($rc === 0 && is_file($tmpPdf) && filesize($tmpPdf) > 1000);
-      } else {
+      }
+      if (!$built) {
         $soffice = Util::resolveSofficePath($config);
         if ($soffice !== '') {
           $convertFilter = Util::libreOfficeCalcPdfConvertFilter($config);
