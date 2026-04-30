@@ -239,12 +239,22 @@ final class Util {
     if ($excludeHidden) {
       $parts[] = 'xh';
     }
-    $ooxmlFit = !array_key_exists('xlsx_pdf_ooxml_fit_to_page', $config)
-      || !empty($config['xlsx_pdf_ooxml_fit_to_page']);
-    if (!empty($config['xlsx_pdf_single_page_sheets']) && $ooxmlFit) {
+    if (!empty($config['xlsx_pdf_single_page_sheets']) && self::xlsxOoxmlFitToPageEnabled($config)) {
       $parts[] = 'ft';
     }
     return $parts === [] ? '' : ('_' . implode('_', $parts));
+  }
+
+  /**
+   * OOXML “fit sheet on one page” rewrite. Default: on for soffice-only installs, off when
+   * gotenberg_url is set (Gotenberg already applies SinglePageSheets; mixing both can skew output).
+   */
+  private static function xlsxOoxmlFitToPageEnabled(array $config): bool {
+    if (array_key_exists('xlsx_pdf_ooxml_fit_to_page', $config)) {
+      return !empty($config['xlsx_pdf_ooxml_fit_to_page']);
+    }
+    $g = trim((string)($config['gotenberg_url'] ?? ''));
+    return $g === '';
   }
 
   /**
@@ -272,9 +282,7 @@ final class Util {
       }
     }
 
-    $ooxmlFit = !array_key_exists('xlsx_pdf_ooxml_fit_to_page', $config)
-      || !empty($config['xlsx_pdf_ooxml_fit_to_page']);
-    if (!empty($config['xlsx_pdf_single_page_sheets']) && $ooxmlFit && $isOoxml) {
+    if (!empty($config['xlsx_pdf_single_page_sheets']) && self::xlsxOoxmlFitToPageEnabled($config) && $isOoxml) {
       $fitted = self::xlsxApplyFitSheetOnOnePage($path, $config);
       if ($fitted !== null) {
         $unlinks[] = $fitted;
@@ -389,6 +397,26 @@ final class Util {
   }
 
   /**
+   * r:id on a workbook sheet element (OOXML may use any prefix or namespaced attribute).
+   */
+  private static function ooxmlSheetRelationshipId(\DOMElement $sheet): string {
+    $ns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    if ($sheet->hasAttributeNS($ns, 'id')) {
+      return $sheet->getAttributeNS($ns, 'id');
+    }
+    foreach ($sheet->attributes ?? [] as $attr) {
+      if ($attr->localName === 'id' && str_contains((string)$attr->namespaceURI, 'officeDocument/2006/relationships')) {
+        return (string)$attr->value;
+      }
+    }
+    $r = $sheet->getAttribute('r:id');
+    if ($r !== '') {
+      return $r;
+    }
+    return '';
+  }
+
+  /**
    * Copies an XLSX/XLSM to a temp file with hidden sheets removed. Returns null if nothing to strip or on failure.
    */
   public static function xlsxCopyWithoutHiddenSheets(string $sourcePath): ?string {
@@ -409,13 +437,16 @@ final class Util {
       return null;
     }
     $xp = new \DOMXPath($dom);
-    $xp->registerNamespace('m', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
-    $xp->registerNamespace('r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
-    $hidden = $xp->query('//m:sheets/m:sheet[@state="hidden" or @state="veryHidden"]');
+    // local-name() — some workbooks use different xmlns prefixes than m:/r:
+    $hidden = $xp->query(
+      '//*[local-name()="sheets"]/*[local-name()="sheet" and (@state="hidden" or @state="veryHidden")]',
+    );
     if ($hidden === false || $hidden->length === 0) {
       return null;
     }
-    $visible = $xp->query('//m:sheets/m:sheet[not(@state="hidden") and not(@state="veryHidden")]');
+    $visible = $xp->query(
+      '//*[local-name()="sheets"]/*[local-name()="sheet" and not(@state="hidden") and not(@state="veryHidden")]',
+    );
     if ($visible === false || $visible->length < 1) {
       return null;
     }
@@ -444,7 +475,6 @@ final class Util {
       return null;
     }
     $relsXp = new \DOMXPath($relsDom);
-    $relsXp->registerNamespace('rel', 'http://schemas.openxmlformats.org/package/2006/relationships');
 
     $rIds = [];
     for ($i = 0; $i < $hidden->length; $i++) {
@@ -452,10 +482,7 @@ final class Util {
       if (!$el instanceof \DOMElement) {
         continue;
       }
-      $rid = $el->getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
-      if ($rid === '') {
-        $rid = $el->getAttribute('r:id');
-      }
+      $rid = self::ooxmlSheetRelationshipId($el);
       if ($rid !== '') {
         $rIds[$rid] = true;
       }
@@ -467,7 +494,7 @@ final class Util {
     }
 
     $targets = [];
-    $relsNodes = $relsXp->query('//rel:Relationship');
+    $relsNodes = $relsXp->query('//*[local-name()="Relationship"]');
     if ($relsNodes !== false) {
       for ($i = 0; $i < $relsNodes->length; $i++) {
         $rel = $relsNodes->item($i);
@@ -475,6 +502,9 @@ final class Util {
           continue;
         }
         $id = $rel->getAttribute('Id');
+        if ($id === '') {
+          $id = $rel->getAttribute('id');
+        }
         if ($id === '' || empty($rIds[$id])) {
           continue;
         }
@@ -536,6 +566,9 @@ final class Util {
           continue;
         }
         $id = $rel->getAttribute('Id');
+        if ($id === '') {
+          $id = $rel->getAttribute('id');
+        }
         if ($id !== '' && !empty($rIds[$id])) {
           $rel->parentNode?->removeChild($rel);
         }
@@ -564,7 +597,7 @@ final class Util {
       if (@$ctDom->loadXML($ct) === true) {
         $ctXp = new \DOMXPath($ctDom);
         $ctXp->registerNamespace('t', 'http://schemas.openxmlformats.org/package/2006/content-types');
-        $overrides = $ctXp->query('//t:Override');
+        $overrides = $ctXp->query('//*[local-name()="Override"]');
         if ($overrides !== false) {
           for ($i = $overrides->length - 1; $i >= 0; $i--) {
             $ov = $overrides->item($i);
