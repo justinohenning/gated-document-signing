@@ -8,56 +8,44 @@ Auth::requireAdmin();
 
 header('Content-Type: text/plain; charset=utf-8');
 
+// Allow overriding with a raw filesystem path for debugging (no DB needed).
+$rawPath = isset($_GET['path']) ? (string)$_GET['path'] : '';
+
+if ($rawPath !== '' && is_file($rawPath)) {
+    $storedPath   = $rawPath;
+    $originalName = basename($rawPath);
+    goto run_diag;
+}
+
 $projectId = (int)($_GET['project_id'] ?? 0);
 $fileId    = (int)($_GET['file_id'] ?? 0);
 
-// No params — list every XLSX file in the DB so the user can pick the right IDs.
+// No params or bad params — scan filesystem and list files.
 if ($projectId < 1 || $fileId < 1) {
-    echo "=== ALL XLSX/XLS FILES IN DB ===\n";
-    try {
-        $rows = $db->query(
-            "SELECT id AS file_id, project_id, original_name, stored_path
-               FROM project_files
-              ORDER BY project_id, id"
-        )->fetchAll(\PDO::FETCH_ASSOC);
-        if (!$rows) {
-            echo "(no files found in project_files table)\n";
-        }
-        foreach ($rows as $r) {
-            $ext = strtolower(pathinfo((string)$r['original_name'], PATHINFO_EXTENSION));
-            if (!in_array($ext, ['xlsx','xlsm','xls','ods'], true)) continue;
-            $exists = is_file((string)$r['stored_path']) ? 'EXISTS' : 'MISSING';
-            echo "project_id={$r['project_id']}  file_id={$r['file_id']}  [$exists]  {$r['original_name']}\n";
-            echo "  path: {$r['stored_path']}\n";
-        }
-    } catch (\Throwable $e) {
-        echo "DB error: " . $e->getMessage() . "\n";
-        echo "\nFalling back to filesystem scan:\n";
-        foreach (glob(dirname(__DIR__, 2) . '/storage/projects/*/files/*.{xlsx,xlsm,xls,ods}', GLOB_BRACE) ?: [] as $f) {
-            echo "  " . $f . " (" . (is_file($f) ? filesize($f) . ' bytes' : 'MISSING') . ")\n";
-        }
+    echo "=== SPREADSHEET FILES ON DISK ===\n";
+    $pattern = dirname(__DIR__, 2) . '/storage/projects/*/files/*.{xlsx,xlsm,xls,ods}';
+    $found   = glob($pattern, GLOB_BRACE) ?: [];
+    foreach ($found as $f) {
+        echo "  " . $f . " (" . filesize($f) . " bytes)\n";
     }
-    echo "\nThen open: ?project_id=X&file_id=Y\n";
+    echo "\nOpen with raw path:\n";
+    foreach ($found as $f) {
+        echo "  ?path=" . urlencode($f) . "\n";
+    }
     exit;
 }
 
 $file = $projects->getFile($fileId);
 if (!$file || (int)$file['project_id'] !== $projectId) {
-    echo "File not found (project_id=$projectId file_id=$fileId).\n\n";
-    echo "=== ALL FILES IN DB FOR project_id=$projectId ===\n";
-    try {
-        $rows = $db->query(
-            "SELECT id, original_name, stored_path FROM project_files WHERE project_id = $projectId ORDER BY id"
-        )->fetchAll(\PDO::FETCH_ASSOC);
-        foreach ($rows as $r) {
-            $exists = is_file((string)$r['stored_path']) ? 'EXISTS' : 'MISSING';
-            echo "  file_id={$r['id']}  [$exists]  {$r['original_name']}\n";
-        }
-    } catch (\Throwable $e) {
-        echo "DB error: " . $e->getMessage() . "\n";
-    }
+    echo "File not found (project_id=$projectId file_id=$fileId).\n";
+    echo "Try opening without params to list files.\n";
     exit;
 }
+
+$storedPath   = (string)$file['stored_path'];
+$originalName = (string)$file['original_name'];
+
+run_diag:
 
 $storedPath   = (string)$file['stored_path'];
 $originalName = (string)$file['original_name'];
