@@ -72,6 +72,20 @@ if ($accessToken !== '') {
 
 $email = Auth::visitorEmail($projectId);
 
+// Cookie-based return access: only applies when there is no verified session email.
+// Must run before the email gate so returning visitors are not asked to re-enter their email,
+// but must NOT override a session email that was just set by clicking a magic link.
+if ($email === null) {
+  $cookieToken = $_COOKIE['gds_access_' . $projectId] ?? '';
+  if (is_string($cookieToken) && $cookieToken !== '') {
+    $emailFromCookie = $ndaSigning->validateAccessToken($projectId, $cookieToken);
+    if ($emailFromCookie) {
+      Auth::setVisitorEmail($projectId, $emailFromCookie);
+      $email = $emailFromCookie;
+    }
+  }
+}
+
 // Email capture
 if ($email === null && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'set_email') {
   if (!Auth::verifyCsrfToken((string)($_POST['_csrf'] ?? ''))) {
@@ -329,26 +343,29 @@ if (!$signed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST
   exit;
 }
 
-// Cookie-based return access (email-bound token)
-if ($signed === false) {
-  $cookieToken = $_COOKIE['gds_access_' . $projectId] ?? '';
-  if (is_string($cookieToken) && $cookieToken !== '') {
-    $emailFromCookie = $ndaSigning->validateAccessToken($projectId, $cookieToken);
-    if ($emailFromCookie) {
-      Auth::setVisitorEmail($projectId, $emailFromCookie);
-      $email = $emailFromCookie;
-      $signed = $ndaSigning->hasSigned($projectId, $email);
-    }
-  }
+// Sign-out: clear session email and access cookie so the user can re-enter their email.
+if (isset($_GET['signout'])) {
+  Auth::startSession();
+  unset($_SESSION['visitor_email_' . $projectId]);
+  setcookie('gds_access_' . $projectId, '', [
+    'expires' => time() - 3600,
+    'path' => '/',
+    'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+    'httponly' => true,
+    'samesite' => 'Lax',
+  ]);
+  header('Location: index.php?p=' . urlencode($projectToken));
+  exit;
 }
 
 if ($signed) {
   renderHeader('Files');
   renderAnalyticsTracker($projectToken, 'files', $email);
   $pn = Util::h((string)$project['name']);
+  $signoutHref = Util::h('index.php?p=' . urlencode($projectToken) . '&signout=1');
   echo '<div class="card">';
   echo '<h2 class="gds-page-title">' . $pn . '</h2>';
-  echo '<p class="gds-lead">Signed as <strong>' . Util::h($email) . '</strong>.</p>';
+  echo '<p class="gds-lead">Signed as <strong>' . Util::h($email) . '</strong>. <a href="' . $signoutHref . '" class="muted" style="font-size:.875em">Not you?</a></p>';
   $signedHref = 'download.php?p=' . urlencode($projectToken) . '&signed_nda=1';
   echo '<div class="gds-card-header" style="margin-top:0">';
   echo '<div class="gds-section-title" style="margin:0">Your files</div>';
