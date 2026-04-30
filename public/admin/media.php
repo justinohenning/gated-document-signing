@@ -84,7 +84,8 @@ function ensureXlsxPreviewPdf(array $config, Projects $projects, int $projectId,
   if (!is_dir($prevDir)) {
     mkdir($prevDir, 0770, true);
   }
-  $outPdf = $prevDir . '/file_' . (string)$fileId . '.pdf';
+  $pdfCacheTag = !empty($config['xlsx_pdf_single_page_sheets']) ? '_sps' : '';
+  $outPdf = $prevDir . '/file_' . (string)$fileId . $pdfCacheTag . '.pdf';
   $srcMtime = @filemtime($storedPath) ?: 0;
   $pdfMtime = @filemtime($outPdf) ?: 0;
   $needsBuild = !is_file($outPdf) || ($srcMtime > 0 && $srcMtime > $pdfMtime);
@@ -112,10 +113,12 @@ function ensureXlsxPreviewPdf(array $config, Projects $projects, int $projectId,
   if (!$built) {
     $soffice = Util::resolveSofficePath($config);
     if ($soffice !== '') {
+      $convertFilter = Util::libreOfficeCalcPdfConvertFilter($config);
       $cmd = Util::libreOfficeEnvPrefix($config)
         . escapeshellarg($soffice)
         . ' --headless --nologo --nofirststartwizard --norestore'
-        . ' --convert-to pdf --outdir ' . escapeshellarg($prevDir)
+        . ' --convert-to ' . escapeshellarg($convertFilter)
+        . ' --outdir ' . escapeshellarg($prevDir)
         . ' ' . escapeshellarg($storedPath);
       $outLines = [];
       $rc = 0;

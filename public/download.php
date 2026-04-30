@@ -232,7 +232,8 @@ if ($mode === 'view_pdf' && $previewProfile !== null && $previewProfile['kind'] 
   if (!is_dir($prevDir)) {
     mkdir($prevDir, 0770, true);
   }
-  $outPdf = $prevDir . '/file_' . (string)$fileId . '.pdf';
+  $pdfCacheTag = !empty($config['xlsx_pdf_single_page_sheets']) ? '_sps' : '';
+  $outPdf = $prevDir . '/file_' . (string)$fileId . $pdfCacheTag . '.pdf';
   $srcMtime = @filemtime($path) ?: 0;
   $pdfMtime = @filemtime($outPdf) ?: 0;
 
@@ -259,10 +260,12 @@ if ($mode === 'view_pdf' && $previewProfile !== null && $previewProfile['kind'] 
     } else {
       $soffice = Util::resolveSofficePath($config);
       if ($soffice !== '') {
+        $convertFilter = Util::libreOfficeCalcPdfConvertFilter($config);
         $cmd = Util::libreOfficeEnvPrefix($config)
           . escapeshellarg($soffice)
           . ' --headless --nologo --nofirststartwizard --norestore'
-          . ' --convert-to pdf --outdir ' . escapeshellarg($prevDir)
+          . ' --convert-to ' . escapeshellarg($convertFilter)
+          . ' --outdir ' . escapeshellarg($prevDir)
           . ' ' . escapeshellarg($path);
         $outLines = [];
         $rc = 0;

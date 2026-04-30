@@ -207,6 +207,23 @@ final class Util {
   }
 
   /**
+   * --convert-to target for Calc → PDF so each sheet is one continuous page (matches
+   * Gotenberg singlePageSheets). Without this, LibreOffice uses print ranges and fragments rows.
+   *
+   * @return non-empty-string
+   */
+  public static function libreOfficeCalcPdfConvertFilter(array $config): string {
+    if (empty($config['xlsx_pdf_single_page_sheets'])) {
+      return 'pdf';
+    }
+    $data = [
+      'SinglePageSheets' => ['type' => 'boolean', 'value' => 'true'],
+    ];
+    $json = json_encode($data, JSON_UNESCAPED_SLASHES);
+    return 'pdf:calc_pdf_Export:' . $json;
+  }
+
+  /**
    * Path to the soffice binary. Optional config soffice_path skips a broken wrapper.
    *
    * @return non-empty-string|''
