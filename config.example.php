@@ -25,6 +25,10 @@ return [
   'xlsx_preview_mode' => 'pdf',
   'gotenberg_url' => '', // e.g. http://127.0.0.1:3000 — required on server for XLSX→PDF unless LibreOffice CLI is installed.
   'xlsx_pdf_single_page_sheets' => true,
+  // When true (default), hidden/veryHidden worksheet tabs are removed before PDF export. LibreOffice
+  // "single page sheets" still includes hidden tabs (one PDF page each), so this keeps page count aligned
+  // with visible tabs.
+  'xlsx_pdf_exclude_hidden_sheets' => true,
   'xlsx_pdf_landscape' => true,
   // Optional: fix LibreOffice CLI under php-fpm (wrapper "cd /root" errors). Usually auto from posix; override if needed.
   // 'libreoffice_home' => '/var/www/vhosts/example.com',

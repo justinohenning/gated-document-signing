@@ -217,10 +217,267 @@ final class Util {
       return 'pdf';
     }
     $data = [
-      'SinglePageSheets' => ['type' => 'boolean', 'value' => 'true'],
+      'SinglePageSheets' => ['type' => 'boolean', 'value' => true],
     ];
     $json = json_encode($data, JSON_UNESCAPED_SLASHES);
     return 'pdf:calc_pdf_Export:' . $json;
+  }
+
+  /**
+   * Suffix for cached XLSX→PDF preview files (invalidates when export rules change).
+   *
+   * @return non-empty-string|''
+   */
+  public static function xlsxPdfCacheFilenameSuffix(array $config): string {
+    $parts = [];
+    if (!empty($config['xlsx_pdf_single_page_sheets'])) {
+      $parts[] = 'sps';
+    }
+    $excludeHidden = array_key_exists('xlsx_pdf_exclude_hidden_sheets', $config)
+      ? !empty($config['xlsx_pdf_exclude_hidden_sheets'])
+      : true;
+    if ($excludeHidden) {
+      $parts[] = 'xh';
+    }
+    return $parts === [] ? '' : ('_' . implode('_', $parts));
+  }
+
+  /**
+   * Whether to drop hidden/veryHidden sheets before LibreOffice/Gotenberg PDF export.
+   * SinglePageSheets still emits one page per sheet including hidden tabs; stripping matches
+   * the usual “visible tabs only” expectation.
+   *
+   * @return array{path: string, unlink: ?string} unlink: temp file to remove after conversion
+   */
+  public static function xlsxPathForPdfConversion(string $sourcePath, string $originalName, array $config): array {
+    $excludeHidden = array_key_exists('xlsx_pdf_exclude_hidden_sheets', $config)
+      ? !empty($config['xlsx_pdf_exclude_hidden_sheets'])
+      : true;
+    $lower = strtolower($originalName);
+    $ext = pathinfo($lower, PATHINFO_EXTENSION);
+    if (!$excludeHidden || ($ext !== 'xlsx' && $ext !== 'xlsm')) {
+      return ['path' => $sourcePath, 'unlink' => null];
+    }
+    $tmp = self::xlsxCopyWithoutHiddenSheets($sourcePath);
+    if ($tmp === null) {
+      return ['path' => $sourcePath, 'unlink' => null];
+    }
+    return ['path' => $tmp, 'unlink' => $tmp];
+  }
+
+  /**
+   * Copies an XLSX/XLSM to a temp file with hidden sheets removed. Returns null if nothing to strip or on failure.
+   */
+  public static function xlsxCopyWithoutHiddenSheets(string $sourcePath): ?string {
+    if (!extension_loaded('zip') || !class_exists('ZipArchive')) {
+      return null;
+    }
+    $probe = new ZipArchive();
+    if ($probe->open($sourcePath) !== true) {
+      return null;
+    }
+    $wbXml = $probe->getFromName('xl/workbook.xml');
+    $probe->close();
+    if ($wbXml === false || $wbXml === '') {
+      return null;
+    }
+    $dom = new \DOMDocument();
+    if (@$dom->loadXML($wbXml) !== true) {
+      return null;
+    }
+    $xp = new \DOMXPath($dom);
+    $xp->registerNamespace('m', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
+    $xp->registerNamespace('r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
+    $hidden = $xp->query('//m:sheets/m:sheet[@state="hidden" or @state="veryHidden"]');
+    if ($hidden === false || $hidden->length === 0) {
+      return null;
+    }
+    $visible = $xp->query('//m:sheets/m:sheet[not(@state="hidden") and not(@state="veryHidden")]');
+    if ($visible === false || $visible->length < 1) {
+      return null;
+    }
+
+    $tmp = tempnam(sys_get_temp_dir(), 'gdsxh');
+    if ($tmp === false || !@copy($sourcePath, $tmp)) {
+      return null;
+    }
+
+    $zip = new ZipArchive();
+    if ($zip->open($tmp) !== true) {
+      @unlink($tmp);
+      return null;
+    }
+
+    $relsXml = $zip->getFromName('xl/_rels/workbook.xml.rels');
+    if ($relsXml === false || $relsXml === '') {
+      $zip->close();
+      @unlink($tmp);
+      return null;
+    }
+    $relsDom = new \DOMDocument();
+    if (@$relsDom->loadXML($relsXml) !== true) {
+      $zip->close();
+      @unlink($tmp);
+      return null;
+    }
+    $relsXp = new \DOMXPath($relsDom);
+    $relsXp->registerNamespace('rel', 'http://schemas.openxmlformats.org/package/2006/relationships');
+
+    $rIds = [];
+    for ($i = 0; $i < $hidden->length; $i++) {
+      $el = $hidden->item($i);
+      if (!$el instanceof \DOMElement) {
+        continue;
+      }
+      $rid = $el->getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+      if ($rid === '') {
+        $rid = $el->getAttribute('r:id');
+      }
+      if ($rid !== '') {
+        $rIds[$rid] = true;
+      }
+    }
+    if ($rIds === []) {
+      $zip->close();
+      @unlink($tmp);
+      return null;
+    }
+
+    $targets = [];
+    $relsNodes = $relsXp->query('//rel:Relationship');
+    if ($relsNodes !== false) {
+      for ($i = 0; $i < $relsNodes->length; $i++) {
+        $rel = $relsNodes->item($i);
+        if (!$rel instanceof \DOMElement) {
+          continue;
+        }
+        $id = $rel->getAttribute('Id');
+        if ($id === '' || empty($rIds[$id])) {
+          continue;
+        }
+        $type = $rel->getAttribute('Type');
+        $target = $rel->getAttribute('Target');
+        if ($target === '') {
+          continue;
+        }
+        if (!str_contains($type, 'relationships/worksheet')
+            && !str_contains($type, 'relationships/chartsheet')
+            && !str_contains($type, 'relationships/dialogsheet')) {
+          continue;
+        }
+        $norm = str_replace('\\', '/', $target);
+        if (str_starts_with($norm, '/')) {
+          $norm = ltrim($norm, '/');
+          $partPath = $norm;
+        } else {
+          $partPath = 'xl/' . $norm;
+        }
+        if (!str_starts_with($partPath, 'xl/')) {
+          $partPath = 'xl/' . ltrim($partPath, '/');
+        }
+        $targets[$partPath] = true;
+        $base = basename($partPath);
+        $dir = dirname($partPath);
+        if ($dir !== '.' && $dir !== '') {
+          $relsPart = $dir . '/_rels/' . $base . '.rels';
+          if ($zip->locateName($relsPart) !== false) {
+            $targets[$relsPart] = true;
+          }
+        }
+      }
+    }
+
+    foreach (array_keys($targets) as $part) {
+      if ($zip->locateName($part) !== false) {
+        $zip->deleteName($part);
+      }
+    }
+
+    $hiddenSnap = [];
+    for ($i = 0; $i < $hidden->length; $i++) {
+      $hiddenSnap[] = $hidden->item($i);
+    }
+    foreach ($hiddenSnap as $n) {
+      if ($n instanceof \DOMNode && $n->parentNode !== null) {
+        $n->parentNode->removeChild($n);
+      }
+    }
+
+    if ($relsNodes !== false) {
+      $relSnap = [];
+      for ($i = 0; $i < $relsNodes->length; $i++) {
+        $relSnap[] = $relsNodes->item($i);
+      }
+      foreach ($relSnap as $rel) {
+        if (!$rel instanceof \DOMElement) {
+          continue;
+        }
+        $id = $rel->getAttribute('Id');
+        if ($id !== '' && !empty($rIds[$id])) {
+          $rel->parentNode?->removeChild($rel);
+        }
+      }
+    }
+
+    $newWb = $dom->saveXML();
+    if ($newWb === false || $newWb === '') {
+      $zip->close();
+      @unlink($tmp);
+      return null;
+    }
+    $newRels = $relsDom->saveXML();
+    if ($newRels === false || $newRels === '') {
+      $zip->close();
+      @unlink($tmp);
+      return null;
+    }
+    $zip->addFromString('xl/workbook.xml', $newWb);
+    $zip->addFromString('xl/_rels/workbook.xml.rels', $newRels);
+
+    $ctPath = '[Content_Types].xml';
+    $ct = $zip->getFromName($ctPath);
+    if ($ct !== false && $ct !== '') {
+      $ctDom = new \DOMDocument();
+      if (@$ctDom->loadXML($ct) === true) {
+        $ctXp = new \DOMXPath($ctDom);
+        $ctXp->registerNamespace('t', 'http://schemas.openxmlformats.org/package/2006/content-types');
+        $overrides = $ctXp->query('//t:Override');
+        if ($overrides !== false) {
+          for ($i = $overrides->length - 1; $i >= 0; $i--) {
+            $ov = $overrides->item($i);
+            if (!$ov instanceof \DOMElement) {
+              continue;
+            }
+            $pn = $ov->getAttribute('PartName');
+            if ($pn === '') {
+              continue;
+            }
+            $pnNorm = str_replace('\\', '/', $pn);
+            foreach (array_keys($targets) as $tpart) {
+              $tNorm = '/' . str_replace('\\', '/', ltrim($tpart, '/'));
+              if (strcasecmp($pnNorm, $tNorm) === 0) {
+                $ov->parentNode?->removeChild($ov);
+                break;
+              }
+            }
+          }
+        }
+        $ctOut = $ctDom->saveXML();
+        if (is_string($ctOut) && $ctOut !== '') {
+          $zip->addFromString($ctPath, $ctOut);
+        }
+      }
+    }
+
+    if ($zip->locateName('xl/calcChain.xml') !== false) {
+      $zip->deleteName('xl/calcChain.xml');
+    }
+
+    if ($zip->close() !== true) {
+      @unlink($tmp);
+      return null;
+    }
+    return $tmp;
   }
 
   /**

@@ -84,7 +84,7 @@ function ensureXlsxPreviewPdf(array $config, Projects $projects, int $projectId,
   if (!is_dir($prevDir)) {
     mkdir($prevDir, 0770, true);
   }
-  $pdfCacheTag = !empty($config['xlsx_pdf_single_page_sheets']) ? '_sps' : '';
+  $pdfCacheTag = Util::xlsxPdfCacheFilenameSuffix($config);
   $outPdf = $prevDir . '/file_' . (string)$fileId . $pdfCacheTag . '.pdf';
   $srcMtime = @filemtime($storedPath) ?: 0;
   $pdfMtime = @filemtime($outPdf) ?: 0;
@@ -94,41 +94,49 @@ function ensureXlsxPreviewPdf(array $config, Projects $projects, int $projectId,
   }
   $tmpPdf = $outPdf . '.tmp.' . bin2hex(random_bytes(6));
   $built = false;
-  $gotenbergUrl = trim((string)($config['gotenberg_url'] ?? ''));
-  if ($gotenbergUrl !== '') {
-    $endpoint = rtrim($gotenbergUrl, '/') . '/forms/libreoffice/convert';
-    $landscape = !empty($config['xlsx_pdf_landscape']) ? 'true' : 'false';
-    $singlePageSheets = !empty($config['xlsx_pdf_single_page_sheets']) ? 'true' : 'false';
-    $cmd = 'curl -fsS'
-      . ' -o ' . escapeshellarg($tmpPdf)
-      . ' -F ' . escapeshellarg('files=@' . $storedPath)
-      . ' -F ' . escapeshellarg('landscape=' . $landscape)
-      . ' -F ' . escapeshellarg('singlePageSheets=' . $singlePageSheets)
-      . ' ' . escapeshellarg($endpoint);
-    $outLines = [];
-    $rc = 0;
-    @exec($cmd, $outLines, $rc);
-    $built = ($rc === 0 && is_file($tmpPdf) && filesize($tmpPdf) > 1000);
-  }
-  if (!$built) {
-    $soffice = Util::resolveSofficePath($config);
-    if ($soffice !== '') {
-      $convertFilter = Util::libreOfficeCalcPdfConvertFilter($config);
-      $cmd = Util::libreOfficeEnvPrefix($config)
-        . escapeshellarg($soffice)
-        . ' --headless --nologo --nofirststartwizard --norestore'
-        . ' --convert-to ' . escapeshellarg($convertFilter)
-        . ' --outdir ' . escapeshellarg($prevDir)
-        . ' ' . escapeshellarg($storedPath);
+  $prep = Util::xlsxPathForPdfConversion($storedPath, $originalName, $config);
+  $convPath = $prep['path'];
+  try {
+    $gotenbergUrl = trim((string)($config['gotenberg_url'] ?? ''));
+    if ($gotenbergUrl !== '') {
+      $endpoint = rtrim($gotenbergUrl, '/') . '/forms/libreoffice/convert';
+      $landscape = !empty($config['xlsx_pdf_landscape']) ? 'true' : 'false';
+      $singlePageSheets = !empty($config['xlsx_pdf_single_page_sheets']) ? 'true' : 'false';
+      $cmd = 'curl -fsS'
+        . ' -o ' . escapeshellarg($tmpPdf)
+        . ' -F ' . escapeshellarg('files=@' . $convPath)
+        . ' -F ' . escapeshellarg('landscape=' . $landscape)
+        . ' -F ' . escapeshellarg('singlePageSheets=' . $singlePageSheets)
+        . ' ' . escapeshellarg($endpoint);
       $outLines = [];
       $rc = 0;
       @exec($cmd, $outLines, $rc);
-      $base = pathinfo($storedPath, PATHINFO_FILENAME);
-      $loPdf = $prevDir . '/' . $base . '.pdf';
-      if ($rc === 0 && is_file($loPdf) && filesize($loPdf) > 1000) {
-        @rename($loPdf, $tmpPdf);
-        $built = is_file($tmpPdf);
+      $built = ($rc === 0 && is_file($tmpPdf) && filesize($tmpPdf) > 1000);
+    }
+    if (!$built) {
+      $soffice = Util::resolveSofficePath($config);
+      if ($soffice !== '') {
+        $convertFilter = Util::libreOfficeCalcPdfConvertFilter($config);
+        $cmd = Util::libreOfficeEnvPrefix($config)
+          . escapeshellarg($soffice)
+          . ' --headless --nologo --nofirststartwizard --norestore'
+          . ' --convert-to ' . escapeshellarg($convertFilter)
+          . ' --outdir ' . escapeshellarg($prevDir)
+          . ' ' . escapeshellarg($convPath);
+        $outLines = [];
+        $rc = 0;
+        @exec($cmd, $outLines, $rc);
+        $base = pathinfo($convPath, PATHINFO_FILENAME);
+        $loPdf = $prevDir . '/' . $base . '.pdf';
+        if ($rc === 0 && is_file($loPdf) && filesize($loPdf) > 1000) {
+          @rename($loPdf, $tmpPdf);
+          $built = is_file($tmpPdf);
+        }
       }
+    }
+  } finally {
+    if ($prep['unlink'] !== null && is_file($prep['unlink'])) {
+      @unlink($prep['unlink']);
     }
   }
   if ($built) {
