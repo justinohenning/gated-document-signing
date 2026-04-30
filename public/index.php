@@ -37,6 +37,31 @@ if ($welcomeEnabled && $welcomeMessage !== '') {
   );
 }
 
+// Magic link: verify email before session access (?ev= hex token)
+if (isset($_GET['ev']) && is_string($_GET['ev']) && trim($_GET['ev']) !== '') {
+  $rawEv = strtolower(preg_replace('/[^a-f0-9]/i', '', (string)$_GET['ev']));
+  if (strlen($rawEv) === 64) {
+    $verifiedEmail = $emailVerification->consumeVerifyToken($projectId, $rawEv);
+    if ($verifiedEmail !== null) {
+      Auth::setVisitorEmail($projectId, $verifiedEmail);
+      Auth::startSession();
+      unset($_SESSION['gds_pending_verify_' . $projectId]);
+      $qs = ['p' => $projectToken];
+      if ($accessToken !== '') {
+        $qs['t'] = $accessToken;
+      }
+      header('Location: index.php?' . http_build_query($qs));
+      exit;
+    }
+  }
+  renderHeader('Link invalid');
+  $retry = 'index.php?' . http_build_query(['p' => $projectToken]);
+  echo '<div class="card"><div class="err"><strong>This sign-in link is invalid or has expired.</strong></div>';
+  echo '<p class="gds-lead"><a href="' . Util::h($retry) . '">Enter your email again</a> to receive a new link.</p></div>';
+  renderFooter();
+  exit;
+}
+
 // If access token present, bind it to session email (email-bound access).
 if ($accessToken !== '') {
   $emailFromToken = $ndaSigning->validateAccessToken($projectId, $accessToken);
@@ -55,16 +80,21 @@ if ($email === null && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset
     echo 'Session expired. Please refresh and try again.';
     exit;
   }
-  $e = trim((string)($_POST['email'] ?? ''));
-  $e = strtolower($e);
+  $e = strtolower(trim((string)($_POST['email'] ?? '')));
   if (!filter_var($e, FILTER_VALIDATE_EMAIL)) {
     renderHeader('Enter email');
     echo '<div class="card"><div class="err"><strong>Please enter a valid email.</strong></div></div>';
     renderFooter();
     exit;
   }
-  Auth::setVisitorEmail($projectId, $e);
-  header('Location: index.php?p=' . urlencode($projectToken));
+  $sent = $emailVerification->sendVerificationLink($projectId, $projectToken, $e, (string)$project['name']);
+  if (!$sent) {
+    header('Location: index.php?' . http_build_query(['p' => $projectToken, 'mail_err' => '1']));
+    exit;
+  }
+  Auth::startSession();
+  $_SESSION['gds_pending_verify_' . $projectId] = $e;
+  header('Location: index.php?' . http_build_query(['p' => $projectToken, 'sent' => '1']));
   exit;
 }
 
@@ -73,10 +103,42 @@ if ($email === null) {
   renderAnalyticsTracker($projectToken, 'email_gate', null);
   $pn = Util::h((string)$project['name']);
   $csrfField = Auth::csrfFieldHtml();
+  $pendingKey = 'gds_pending_verify_' . $projectId;
+  Auth::startSession();
+  $pendingRaw = $_SESSION[$pendingKey] ?? '';
+  $pendingEmail = is_string($pendingRaw) && $pendingRaw !== '' ? Util::h($pendingRaw) : '';
+
+  if (isset($_GET['mail_err'])) {
+    echo '<div class="card"><div class="err gds-flash"><strong>Could not send email.</strong> Ask the administrator to set <code>mail_from_address</code> and optional <code>smtp</code> in <code>config.php</code>, then try again.</div></div>';
+  }
+
+  if (isset($_GET['sent']) && $pendingEmail === '') {
+    header('Location: index.php?' . http_build_query(['p' => $projectToken]));
+    exit;
+  }
+
+  if (isset($_GET['sent']) && $pendingEmail !== '') {
+    echo '<div class="card">';
+    echo '<h2 class="gds-page-title">' . $pn . '</h2>';
+    echo '<div class="ok gds-flash"><strong>Check your email.</strong> We sent a sign-in link to <strong>' . $pendingEmail . '</strong>. Open it on this device (or any device) to continue.</div>';
+    echo '<p class="gds-lead muted">The link expires after a while. If nothing arrives, check spam or request another link.</p>';
+    echo '<form method="post" style="margin-top:var(--gds-space-4)">';
+    echo $csrfField;
+    echo '<input type="hidden" name="action" value="set_email" />';
+    echo '<div class="row" style="align-items:flex-end">';
+    echo '<div class="gds-field" style="margin-bottom:0">';
+    echo '<label class="gds-label" for="gds-email">Email address</label>';
+    echo '<input id="gds-email" name="email" type="email" autocomplete="email" placeholder="you@company.com" value="' . $pendingEmail . '" required /></div>';
+    echo '<div style="flex:0 0 auto;padding-bottom:2px"><button type="submit" class="btn btn-secondary">Resend link</button></div>';
+    echo '</div></form></div>';
+    renderFooter();
+    exit;
+  }
+
   echo <<<HTML
 <div class="card">
   <h2 class="gds-page-title">{$pn}</h2>
-  <p class="gds-lead">Enter your email to continue. If you've already signed, you'll go straight to the files.</p>
+  <p class="gds-lead">Enter your email and we’ll send you a link to confirm it and continue. Use the same email if you’ve already signed the NDA.</p>
   <form method="post">
     {$csrfField}
     <input type="hidden" name="action" value="set_email" />
@@ -86,7 +148,7 @@ if ($email === null) {
         <input id="gds-email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required />
       </div>
       <div style="flex:0 0 auto;padding-bottom:2px">
-        <button type="submit" class="btn btn-primary">Continue</button>
+        <button type="submit" class="btn btn-primary">Send sign-in link</button>
       </div>
     </div>
   </form>

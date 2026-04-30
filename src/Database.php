@@ -183,6 +183,24 @@ final class Database {
     );
   }
 
+  public function ensureEmailVerifyTokensTable(): void {
+    $this->pdo->exec(
+      'CREATE TABLE IF NOT EXISTS email_verify_tokens (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        project_id INT UNSIGNED NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        token_hash CHAR(64) NOT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_evt_project_hash (project_id, token_hash),
+        KEY idx_evt_expires (expires_at),
+        KEY idx_evt_project_email (project_id, email),
+        CONSTRAINT fk_evt_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    );
+  }
+
   /** Adds sort_order to project_files on older installs (no-op if present). */
   public function ensureProjectFilesSortOrderColumn(): void {
     $row = $this->fetchOne(

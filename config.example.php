@@ -24,6 +24,21 @@ return [
   // Examples: "/assets" if the web root is the public/ folder; "/public/assets" if the web root is the project root.
   'public_assets_base' => '',
   'storage_dir' => __DIR__ . '/storage',
+
+  // Visitor email verification (magic link). Requires a valid From address.
+  'mail_from_address' => '', // e.g. noreply@yourdomain.com
+  'mail_from_name' => 'Gated Document Signing',
+  // How long the email confirmation link stays valid (hours; max 168).
+  'email_verify_ttl_hours' => 24,
+  // Optional SMTP (otherwise PHP mail() is used — often disabled on shared hosting).
+  // 'smtp' => [
+  //   'host' => 'smtp.example.com',
+  //   'port' => 587,
+  //   'username' => '',
+  //   'password' => '',
+  //   'encryption' => 'tls', // tls (STARTTLS on 587) or ssl (SMTPS on 465)
+  // ],
+
   // XLSX: 'pdf' (default) = high-fidelity preview via Gotenberg/LibreOffice; 'sheet' = in-browser grid.
   'xlsx_preview_mode' => 'pdf',
   'gotenberg_url' => '', // e.g. http://127.0.0.1:3000 — required on server for XLSX→PDF unless LibreOffice CLI is installed.

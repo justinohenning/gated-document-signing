@@ -2,23 +2,28 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/Mail.php';
+require_once __DIR__ . '/VisitorEmailVerification.php';
+
 /**
  * Shared application wiring for public/ and admin/ bootstraps.
  */
 final class Startup {
   /**
-   * @return array{0: Database, 1: Projects, 2: NdaSigning}
+   * @return array{0: Database, 1: Projects, 2: NdaSigning, 3: VisitorEmailVerification}
    */
   public static function connect(array $config): array {
     Auth::startSession();
     $db = new Database($config);
     $db->ensureApplicationTablesExist();
+    $db->ensureEmailVerifyTokensTable();
     $db->ensureProjectFilesSortOrderColumn();
     Branding::ensureSchema($db);
     $projects = new Projects($db, $config);
     $ndaSigning = new NdaSigning($db, $config);
+    $emailVerification = new VisitorEmailVerification($db, $config);
     $GLOBALS['gds_branding'] = Branding::get($db, $config);
-    return [$db, $projects, $ndaSigning];
+    return [$db, $projects, $ndaSigning, $emailVerification];
   }
 
   public static function failBootstrap(Throwable $e, array $config): void {

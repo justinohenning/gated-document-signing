@@ -20,7 +20,7 @@ require_once dirname(__DIR__, 2) . '/src/Branding.php';
 require_once dirname(__DIR__, 2) . '/src/Startup.php';
 
 try {
-  [$db, $projects, $ndaSigning] = Startup::connect($config);
+  [$db, $projects, $ndaSigning, $emailVerification] = Startup::connect($config);
 } catch (Throwable $e) {
   Startup::failBootstrap($e, $config);
 }

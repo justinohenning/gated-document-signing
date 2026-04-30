@@ -37,6 +37,31 @@ final class Util {
   }
 
   /**
+   * Public visitor origin (share links, magic links). Prefer public_base_url, else base_url with /admin stripped.
+   */
+  public static function visitorPublicBaseUrl(array $config): string {
+    $publicBase = isset($config['public_base_url']) ? trim((string)$config['public_base_url']) : '';
+    if ($publicBase !== '') {
+      return rtrim($publicBase, '/');
+    }
+    $baseUrl = self::baseUrl($config);
+    $visitorBase = (string)preg_replace('~/admin$~', '', $baseUrl);
+    $u = parse_url($visitorBase);
+    if (($u['host'] ?? '') === '127.0.0.1' && (int)($u['port'] ?? 0) === 8010) {
+      return 'http://127.0.0.1:8008';
+    }
+    return rtrim((string)$visitorBase, '/');
+  }
+
+  /** Magic link to verify email and continue on the visitor app. */
+  public static function emailVerificationUrl(array $config, string $projectToken, string $rawToken): string {
+    return self::visitorPublicBaseUrl($config) . '/index.php?' . http_build_query([
+      'p' => $projectToken,
+      'ev' => $rawToken,
+    ]);
+  }
+
+  /**
    * URL path (leading slash) to a file under the project's public/ directory.
    * Tries DOCUMENT_ROOT, project/public, and project root (longest match wins).
    *
