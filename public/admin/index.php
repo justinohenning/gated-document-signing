@@ -238,6 +238,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) 
   exit;
 }
 
+// Reorder project files (Documents tab)
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reorder_project_files') {
+  $pid = (int)($_POST['project_id'] ?? 0);
+  $order = $_POST['file_order'] ?? [];
+  if ($pid > 0 && is_array($order)) {
+    try {
+      $projects->reorderProjectFiles($pid, array_map('intval', $order));
+    } catch (InvalidArgumentException $e) {
+      header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=documents&reorder_err=1');
+      exit;
+    }
+  }
+  header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=documents&toast=1');
+  exit;
+}
+
 // Update project settings
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_project_settings') {
   $pid = (int)($_POST['project_id'] ?? 0);
@@ -1686,10 +1702,17 @@ if ($view === 'project') {
   $previewSecret = (string)($config['app_secret'] ?? '');
   $files = $projects->listFiles((int)$proj['id']);
   if ($files) {
-    echo '<form method="post" id="deleteProjectFilesForm" style="margin-top:var(--gds-space-3)">';
+    echo '<div class="gds-file-order-toolbar" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--gds-space-2);margin-top:var(--gds-space-3)">';
+    echo '<p class="muted" style="margin:0;max-width:48rem">Drag rows by the handle to set the order visitors see (top = first). Then click <strong>Save order</strong>.</p>';
+    echo '<button type="button" class="btn btn-secondary" id="gdsSaveFileOrderBtn">Save order</button>';
+    echo '</div>';
+    echo '<form method="post" id="deleteProjectFilesForm">';
     echo '<input type="hidden" name="action" value="delete_project_files" />';
     echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
-    echo '<div class="gds-table-wrap"><table><thead><tr><th style="width:36px" title="Select"></th><th style="width:48px" title="Preview"></th><th>ID</th><th>Name</th><th>Size</th><th>Uploaded</th></tr></thead><tbody>';
+    echo '<div class="gds-table-wrap"><table><thead><tr>';
+    echo '<th class="gds-th-drag" style="width:32px" title="Drag to reorder" aria-label="Reorder"></th>';
+    echo '<th style="width:36px" title="Select"></th><th style="width:48px" title="Preview"></th><th>ID</th><th>Name</th><th>Size</th><th>Uploaded</th>';
+    echo '</tr></thead><tbody id="gdsSortableFilesTbody">';
     foreach ($files as $f) {
       $fid = (int)$f['id'];
       $previewTok = $previewSecret !== ''
@@ -1703,7 +1726,8 @@ if ($view === 'project') {
         ]))
         : '';
       $previewLabel = 'Preview ' . (string)$f['original_name'];
-      echo '<tr>';
+      echo '<tr class="gds-sortable-file-row" draggable="true" data-file-id="' . $fid . '">';
+      echo '<td class="gds-td-drag" title="Drag to reorder"><span class="gds-file-drag-icon" aria-hidden="true">⋮⋮</span></td>';
       echo '<td><input type="checkbox" name="file_ids[]" value="' . $fid . '" aria-label="Select ' . Util::h((string)$f['original_name']) . '" /></td>';
       echo '<td>';
       if ($previewPageUrl !== '') {
@@ -1728,6 +1752,58 @@ if ($view === 'project') {
     echo '</button>';
     echo '</div>';
     echo '</form>';
+    echo '<form method="post" id="gdsReorderFilesForm" style="display:none" aria-hidden="true">';
+    echo '<input type="hidden" name="action" value="reorder_project_files" />';
+    echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
+    echo '</form>';
+    echo <<<'HTML'
+<script>
+(function () {
+  var tbody = document.getElementById('gdsSortableFilesTbody');
+  var btn = document.getElementById('gdsSaveFileOrderBtn');
+  var form = document.getElementById('gdsReorderFilesForm');
+  if (!tbody || !btn || !form) return;
+  var dragEl = null;
+  tbody.querySelectorAll('tr.gds-sortable-file-row').forEach(function (tr) {
+    tr.addEventListener('dragstart', function (e) {
+      if (e.target && e.target.closest && e.target.closest('input, button')) {
+        e.preventDefault();
+        return;
+      }
+      dragEl = tr;
+      tr.classList.add('gds-file-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', tr.getAttribute('data-file-id') || ''); } catch (err) {}
+    });
+    tr.addEventListener('dragend', function () {
+      tr.classList.remove('gds-file-dragging');
+      dragEl = null;
+    });
+    tr.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!dragEl || dragEl === tr) return;
+      var rect = tr.getBoundingClientRect();
+      var before = (e.clientY - rect.top) < rect.height / 2;
+      tbody.insertBefore(dragEl, before ? tr : tr.nextSibling);
+    });
+  });
+  btn.addEventListener('click', function () {
+    form.querySelectorAll('input[name="file_order[]"]').forEach(function (n) { n.remove(); });
+    tbody.querySelectorAll('tr[data-file-id]').forEach(function (row) {
+      var id = row.getAttribute('data-file-id');
+      if (!id) return;
+      var inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = 'file_order[]';
+      inp.value = id;
+      form.appendChild(inp);
+    });
+    form.submit();
+  });
+})();
+</script>
+HTML;
   } else {
     echo '<p class="gds-help" style="margin-top:var(--gds-space-3);margin-bottom:0">No files uploaded yet.</p>';
   }

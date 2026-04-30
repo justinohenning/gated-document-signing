@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS project_files (
   original_name VARCHAR(255) NOT NULL,
   stored_path TEXT NOT NULL,
   size_bytes INT UNSIGNED NOT NULL DEFAULT 0,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL,
   PRIMARY KEY (id),
   KEY idx_files_project (project_id),

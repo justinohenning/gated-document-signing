@@ -65,14 +65,51 @@ final class Projects {
   }
 
   public function addFile(int $projectId, string $originalName, string $storedPath, int $sizeBytes): void {
+    $maxRow = $this->db->fetchOne(
+      'SELECT COALESCE(MAX(sort_order), -1) AS m FROM project_files WHERE project_id = :pid',
+      [':pid' => $projectId],
+    );
+    $nextOrder = (int)($maxRow['m'] ?? -1) + 1;
     $this->db->exec(
-      'INSERT INTO project_files (project_id, original_name, stored_path, size_bytes, created_at) VALUES (:pid, :on, :sp, :sz, UTC_TIMESTAMP())',
-      [':pid' => $projectId, ':on' => $originalName, ':sp' => $storedPath, ':sz' => $sizeBytes],
+      'INSERT INTO project_files (project_id, original_name, stored_path, size_bytes, sort_order, created_at)
+       VALUES (:pid, :on, :sp, :sz, :so, UTC_TIMESTAMP())',
+      [':pid' => $projectId, ':on' => $originalName, ':sp' => $storedPath, ':sz' => $sizeBytes, ':so' => $nextOrder],
     );
   }
 
   public function listFiles(int $projectId): array {
-    return $this->db->fetchAll('SELECT * FROM project_files WHERE project_id = :pid ORDER BY id DESC', [':pid' => $projectId]);
+    return $this->db->fetchAll(
+      'SELECT * FROM project_files WHERE project_id = :pid ORDER BY sort_order ASC, id DESC',
+      [':pid' => $projectId],
+    );
+  }
+
+  /**
+   * @param int[] $orderedFileIds All file IDs for this project, top to bottom.
+   */
+  public function reorderProjectFiles(int $projectId, array $orderedFileIds): void {
+    $ids = [];
+    foreach ($orderedFileIds as $fid) {
+      $fid = (int)$fid;
+      if ($fid > 0 && !in_array($fid, $ids, true)) {
+        $ids[] = $fid;
+      }
+    }
+    $rows = $this->db->fetchAll('SELECT id FROM project_files WHERE project_id = :pid', [':pid' => $projectId]);
+    $all = array_map(static fn(array $r): int => (int)$r['id'], $rows);
+    sort($all);
+    $sorted = $ids;
+    sort($sorted);
+    if ($all !== $sorted || count($ids) !== count($all)) {
+      throw new \InvalidArgumentException('File order must list each project file exactly once.');
+    }
+    $pos = 0;
+    foreach ($ids as $fid) {
+      $this->db->exec(
+        'UPDATE project_files SET sort_order = :o WHERE id = :id AND project_id = :pid',
+        [':o' => $pos++, ':id' => $fid, ':pid' => $projectId],
+      );
+    }
   }
 
   public function getFile(int $fileId): ?array {

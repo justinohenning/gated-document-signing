@@ -13,6 +13,7 @@ final class Startup {
     Auth::startSession();
     $db = new Database($config);
     $db->ensureApplicationTablesExist();
+    $db->ensureProjectFilesSortOrderColumn();
     Branding::ensureSchema($db);
     $projects = new Projects($db, $config);
     $ndaSigning = new NdaSigning($db, $config);

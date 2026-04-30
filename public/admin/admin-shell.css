@@ -431,3 +431,31 @@ body.gds-app--admin .gds-page-title + .gds-lead {
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
+
+/* Sortable project files (Documents tab) */
+.gds-sortable-file-row {
+  cursor: grab;
+}
+
+.gds-sortable-file-row:active {
+  cursor: grabbing;
+}
+
+.gds-sortable-file-row.gds-file-dragging {
+  opacity: 0.55;
+}
+
+.gds-td-drag {
+  width: 32px;
+  text-align: center;
+  vertical-align: middle;
+  color: var(--gds-muted, #888);
+  user-select: none;
+}
+
+.gds-file-drag-icon {
+  display: inline-block;
+  font-size: 14px;
+  letter-spacing: -2px;
+  line-height: 1;
+}

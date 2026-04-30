@@ -98,6 +98,7 @@ final class Database {
         original_name VARCHAR(255) NOT NULL,
         stored_path TEXT NOT NULL,
         size_bytes INT UNSIGNED NOT NULL DEFAULT 0,
+        sort_order INT UNSIGNED NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL,
         PRIMARY KEY (id),
         KEY idx_files_project (project_id),
@@ -180,6 +181,29 @@ final class Database {
         CONSTRAINT fk_ae_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
     );
+  }
+
+  /** Adds sort_order to project_files on older installs (no-op if present). */
+  public function ensureProjectFilesSortOrderColumn(): void {
+    $row = $this->fetchOne(
+      'SELECT 1 AS o FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
+      [':t' => 'project_files', ':c' => 'sort_order'],
+    );
+    if ($row !== null) {
+      return;
+    }
+    try {
+      $this->pdo->exec(
+        'ALTER TABLE project_files ADD COLUMN sort_order INT UNSIGNED NOT NULL DEFAULT 0 AFTER size_bytes',
+      );
+    } catch (\PDOException $e) {
+      $msg = $e->getMessage();
+      if (str_contains($msg, 'Duplicate') || str_contains($msg, 'already exists')) {
+        return;
+      }
+      throw $e;
+    }
   }
 
   public function fetchOne(string $sql, array $params = []): ?array {
