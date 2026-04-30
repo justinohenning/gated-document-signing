@@ -136,30 +136,24 @@ if ($isNda) {
   $viewerKind = $previewProfile['kind'];
 
   // Optional: render XLSX previews as PDF for high-fidelity colors/merges/sizing.
+  // Uses download.php?mode=view_pdf (Gotenberg or LibreOffice on the server). Do not gate on
+  // converter detection here — without a converter, view_pdf returns 501; gating only caused
+  // production hosts without local soffice to fall back to the interactive sheet viewer.
   // Rollback paths:
   // - config.php: set xlsx_preview_mode to 'sheet'
   // - per-link: add ?xlsx_preview=sheet to force the interactive sheet viewer
   if (
     $viewerKind === 'sheet'
-    && (($config['xlsx_preview_mode'] ?? 'sheet') === 'pdf')
+    && (($config['xlsx_preview_mode'] ?? 'pdf') === 'pdf')
     && ((string)($_GET['xlsx_preview'] ?? '') !== 'sheet')
   ) {
-    $gotenbergUrl = trim((string)($config['gotenberg_url'] ?? ''));
-    $hasGotenberg = $gotenbergUrl !== '';
-    $hasSoffice = false;
-    if (!$hasGotenberg) {
-      $out = @shell_exec('command -v soffice 2>/dev/null');
-      $hasSoffice = is_string($out) && trim($out) !== '';
-    }
-    if ($hasGotenberg || $hasSoffice) {
-      $viewerKind = 'pdf';
-      $isExcelPdfPreview = true;
-      $pdfUrl = 'download.php?' . http_build_query(array_merge([
-        'p' => $projectToken,
-        'file_id' => $fileId,
-        'mode' => 'view_pdf',
-      ], $adminQs));
-    }
+    $viewerKind = 'pdf';
+    $isExcelPdfPreview = true;
+    $pdfUrl = 'download.php?' . http_build_query(array_merge([
+      'p' => $projectToken,
+      'file_id' => $fileId,
+      'mode' => 'view_pdf',
+    ], $adminQs));
   }
 }
 
