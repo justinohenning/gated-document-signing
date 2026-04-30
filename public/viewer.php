@@ -834,8 +834,11 @@ echo <<<HTML
   async function renderPage(num) {
     if (!pdfDoc) return;
     if (rendering) { pending = num; return; }
+    const previousPageNum = pageNum;
+    const pageChanged = previousPageNum !== num;
     const prevW = canvas.width || 0;
     const prevH = canvas.height || 0;
+    const firstPaint = prevW === 0 && prevH === 0;
     const prevLeft = pdfPane ? pdfPane.scrollLeft : 0;
     const prevTop = pdfPane ? pdfPane.scrollTop : 0;
     const prevCenterX = pdfPane ? (prevLeft + pdfPane.clientWidth / 2) : 0;
@@ -853,12 +856,17 @@ echo <<<HTML
     rendering = false;
     pageNumEl.textContent = String(num);
     setZoomLabel();
-    // Keep the viewport anchored around the same relative center point after zoom.
+    // First load and page changes: start at the top. Zoom on the same page: keep relative center.
     if (pdfPane) {
-      const nextCenterX = prevRelX * canvas.width;
-      const nextCenterY = prevRelY * canvas.height;
-      pdfPane.scrollLeft = Math.max(0, nextCenterX - pdfPane.clientWidth / 2);
-      pdfPane.scrollTop = Math.max(0, nextCenterY - pdfPane.clientHeight / 2);
+      if (firstPaint || pageChanged) {
+        pdfPane.scrollLeft = 0;
+        pdfPane.scrollTop = 0;
+      } else {
+        const nextCenterX = prevRelX * canvas.width;
+        const nextCenterY = prevRelY * canvas.height;
+        pdfPane.scrollLeft = Math.max(0, nextCenterX - pdfPane.clientWidth / 2);
+        pdfPane.scrollTop = Math.max(0, nextCenterY - pdfPane.clientHeight / 2);
+      }
     }
     if (pending !== null) {
       const next = pending;
