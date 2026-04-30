@@ -109,6 +109,25 @@ function ensureXlsxPreviewPdf(array $config, Projects $projects, int $projectId,
     @exec($cmd, $outLines, $rc);
     $built = ($rc === 0 && is_file($tmpPdf) && filesize($tmpPdf) > 1000);
   }
+  if (!$built) {
+    $soffice = Util::resolveSofficePath($config);
+    if ($soffice !== '') {
+      $cmd = Util::libreOfficeEnvPrefix($config)
+        . escapeshellarg($soffice)
+        . ' --headless --nologo --nofirststartwizard --norestore'
+        . ' --convert-to pdf --outdir ' . escapeshellarg($prevDir)
+        . ' ' . escapeshellarg($storedPath);
+      $outLines = [];
+      $rc = 0;
+      @exec($cmd, $outLines, $rc);
+      $base = pathinfo($storedPath, PATHINFO_FILENAME);
+      $loPdf = $prevDir . '/' . $base . '.pdf';
+      if ($rc === 0 && is_file($loPdf) && filesize($loPdf) > 1000) {
+        @rename($loPdf, $tmpPdf);
+        $built = is_file($tmpPdf);
+      }
+    }
+  }
   if ($built) {
     @rename($tmpPdf, $outPdf);
     return is_file($outPdf) ? $outPdf : null;

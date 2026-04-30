@@ -257,9 +257,10 @@ if ($mode === 'view_pdf' && $previewProfile !== null && $previewProfile['kind'] 
       @exec($cmd, $outLines, $rc);
       $built = ($rc === 0 && is_file($tmpPdf) && filesize($tmpPdf) > 1000);
     } else {
-      $soffice = trim((string)@shell_exec('command -v soffice 2>/dev/null'));
+      $soffice = Util::resolveSofficePath($config);
       if ($soffice !== '') {
-        $cmd = escapeshellarg($soffice)
+        $cmd = Util::libreOfficeEnvPrefix($config)
+          . escapeshellarg($soffice)
           . ' --headless --nologo --nofirststartwizard --norestore'
           . ' --convert-to pdf --outdir ' . escapeshellarg($prevDir)
           . ' ' . escapeshellarg($path);

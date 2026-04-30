@@ -26,5 +26,8 @@ return [
   'gotenberg_url' => '', // e.g. http://127.0.0.1:3000 — required on server for XLSX→PDF unless LibreOffice CLI is installed.
   'xlsx_pdf_single_page_sheets' => true,
   'xlsx_pdf_landscape' => true,
+  // Optional: fix LibreOffice CLI under php-fpm (wrapper "cd /root" errors). Usually auto from posix; override if needed.
+  // 'libreoffice_home' => '/var/www/vhosts/example.com',
+  // 'soffice_path' => '/usr/lib/libreoffice/program/soffice',
 ];
 

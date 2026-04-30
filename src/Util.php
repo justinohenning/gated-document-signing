@@ -173,6 +173,62 @@ final class Util {
   }
 
   /**
+   * Prefix for shell commands that run LibreOffice CLI. The Debian/Ubuntu
+   * /usr/bin/soffice wrapper may "cd" based on HOME/USER; php-fpm often leaves
+   * HOME unset so the script tries /root and fails. Set HOME to the pool user
+   * (via posix) or config libreoffice_home.
+   */
+  public static function libreOfficeEnvPrefix(array $config): string {
+    $home = trim((string)($config['libreoffice_home'] ?? ''));
+    if ($home === '' || !is_dir($home)) {
+      if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+        $pw = @posix_getpwuid(posix_geteuid());
+        if (is_array($pw) && !empty($pw['dir']) && is_dir($pw['dir'])) {
+          $home = (string)$pw['dir'];
+        }
+      }
+    }
+    if ($home === '' || !is_dir($home)) {
+      $home = sys_get_temp_dir();
+    }
+    $name = '';
+    if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+      $pw = @posix_getpwuid(posix_geteuid());
+      if (is_array($pw) && !empty($pw['name'])) {
+        $name = (string)$pw['name'];
+      }
+    }
+    $parts = ['HOME=' . escapeshellarg($home)];
+    if ($name !== '') {
+      $parts[] = 'USER=' . escapeshellarg($name);
+      $parts[] = 'LOGNAME=' . escapeshellarg($name);
+    }
+    return implode(' ', $parts) . ' ';
+  }
+
+  /**
+   * Path to the soffice binary. Optional config soffice_path skips a broken wrapper.
+   *
+   * @return non-empty-string|''
+   */
+  public static function resolveSofficePath(array $config): string {
+    $p = trim((string)($config['soffice_path'] ?? ''));
+    if ($p !== '' && is_file($p)) {
+      return $p;
+    }
+    $p = trim((string)@shell_exec('command -v soffice 2>/dev/null'));
+    if ($p !== '') {
+      return $p;
+    }
+    foreach (['/usr/lib/libreoffice/program/soffice', '/usr/lib64/libreoffice/program/soffice'] as $c) {
+      if (is_file($c)) {
+        return $c;
+      }
+    }
+    return '';
+  }
+
+  /**
    * In-app preview profile for a project file by original filename extension.
    * Returns kind + MIME for inline (mode=view) delivery, or null → download-only in viewer.
    *
