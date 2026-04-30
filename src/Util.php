@@ -239,30 +239,153 @@ final class Util {
     if ($excludeHidden) {
       $parts[] = 'xh';
     }
+    $ooxmlFit = !array_key_exists('xlsx_pdf_ooxml_fit_to_page', $config)
+      || !empty($config['xlsx_pdf_ooxml_fit_to_page']);
+    if (!empty($config['xlsx_pdf_single_page_sheets']) && $ooxmlFit) {
+      $parts[] = 'ft';
+    }
     return $parts === [] ? '' : ('_' . implode('_', $parts));
   }
 
   /**
-   * Whether to drop hidden/veryHidden sheets before LibreOffice/Gotenberg PDF export.
-   * SinglePageSheets still emits one page per sheet including hidden tabs; stripping matches
-   * the usual “visible tabs only” expectation.
+   * Prepare XLSX/XLSM for PDF: optional hidden-sheet strip, then optional OOXML print tuning.
+   * Older LibreOffice (e.g. 7.3 on Plesk) often ignores SinglePageSheets in --convert-to; setting
+   * fitToWidth/fitToHeight on each worksheet matches “one print page per sheet” for default export.
    *
-   * @return array{path: string, unlink: ?string} unlink: temp file to remove after conversion
+   * @return array{path: string, unlinks: list<string>} unlinks: temp files to remove after conversion
    */
   public static function xlsxPathForPdfConversion(string $sourcePath, string $originalName, array $config): array {
+    $unlinks = [];
+    $path = $sourcePath;
+    $lower = strtolower($originalName);
+    $ext = pathinfo($lower, PATHINFO_EXTENSION);
+    $isOoxml = ($ext === 'xlsx' || $ext === 'xlsm');
+
     $excludeHidden = array_key_exists('xlsx_pdf_exclude_hidden_sheets', $config)
       ? !empty($config['xlsx_pdf_exclude_hidden_sheets'])
       : true;
-    $lower = strtolower($originalName);
-    $ext = pathinfo($lower, PATHINFO_EXTENSION);
-    if (!$excludeHidden || ($ext !== 'xlsx' && $ext !== 'xlsm')) {
-      return ['path' => $sourcePath, 'unlink' => null];
+    if ($excludeHidden && $isOoxml) {
+      $stripped = self::xlsxCopyWithoutHiddenSheets($path);
+      if ($stripped !== null) {
+        $unlinks[] = $stripped;
+        $path = $stripped;
+      }
     }
-    $tmp = self::xlsxCopyWithoutHiddenSheets($sourcePath);
-    if ($tmp === null) {
-      return ['path' => $sourcePath, 'unlink' => null];
+
+    $ooxmlFit = !array_key_exists('xlsx_pdf_ooxml_fit_to_page', $config)
+      || !empty($config['xlsx_pdf_ooxml_fit_to_page']);
+    if (!empty($config['xlsx_pdf_single_page_sheets']) && $ooxmlFit && $isOoxml) {
+      $fitted = self::xlsxApplyFitSheetOnOnePage($path, $config);
+      if ($fitted !== null) {
+        $unlinks[] = $fitted;
+        $path = $fitted;
+      }
     }
-    return ['path' => $tmp, 'unlink' => $tmp];
+
+    return ['path' => $path, 'unlinks' => $unlinks];
+  }
+
+  /**
+   * Copies XLSX/XLSM to a temp file with each worksheet's pageSetup set to fit the sheet on
+   * one printed page (OOXML fitToWidth/fitToHeight). Removes row/col page breaks. Returns null
+   * if nothing changed or on failure.
+   */
+  public static function xlsxApplyFitSheetOnOnePage(string $sourcePath, array $config): ?string {
+    if (!extension_loaded('zip') || !class_exists('ZipArchive')) {
+      return null;
+    }
+    $sheetNames = [];
+    $probe = new ZipArchive();
+    if ($probe->open($sourcePath) !== true) {
+      return null;
+    }
+    for ($i = 0; $i < $probe->numFiles; $i++) {
+      $n = $probe->getNameIndex($i);
+      if (is_string($n) && preg_match('#^xl/worksheets/sheet[0-9]+\\.xml$#', $n)) {
+        $sheetNames[] = $n;
+      }
+    }
+    $probe->close();
+    if ($sheetNames === []) {
+      return null;
+    }
+
+    $tmp = tempnam(sys_get_temp_dir(), 'gdsft');
+    if ($tmp === false || !@copy($sourcePath, $tmp)) {
+      return null;
+    }
+    $zip = new ZipArchive();
+    if ($zip->open($tmp) !== true) {
+      @unlink($tmp);
+      return null;
+    }
+
+    $landscape = !empty($config['xlsx_pdf_landscape']);
+    $orient = $landscape ? 'landscape' : 'portrait';
+    $ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+    $modified = false;
+
+    foreach ($sheetNames as $entryName) {
+      $xml = $zip->getFromName($entryName);
+      if ($xml === false || $xml === '') {
+        continue;
+      }
+      $dom = new \DOMDocument();
+      if (@$dom->loadXML($xml) !== true) {
+        continue;
+      }
+      $xp = new \DOMXPath($dom);
+      $xp->registerNamespace('m', $ns);
+      $worksheet = $xp->query('//m:worksheet')->item(0);
+      if (!$worksheet instanceof \DOMElement) {
+        continue;
+      }
+
+      foreach ($xp->query('//*[local-name()="rowBreaks" or local-name()="colBreaks"]') as $br) {
+        if ($br->parentNode !== null) {
+          $br->parentNode->removeChild($br);
+          $modified = true;
+        }
+      }
+
+      $ps = $xp->query('//m:pageSetup')->item(0);
+      if ($ps instanceof \DOMElement) {
+        $ps->setAttribute('fitToWidth', '1');
+        $ps->setAttribute('fitToHeight', '1');
+        $ps->setAttribute('orientation', $orient);
+        if ($ps->hasAttribute('scale')) {
+          $ps->removeAttribute('scale');
+        }
+        $modified = true;
+      } else {
+        $psEl = $dom->createElementNS($ns, 'pageSetup');
+        $psEl->setAttribute('fitToWidth', '1');
+        $psEl->setAttribute('fitToHeight', '1');
+        $psEl->setAttribute('orientation', $orient);
+        $anchor = $xp->query('//m:pageMargins')->item(0) ?: $xp->query('//m:sheetData')->item(0);
+        if ($anchor instanceof \DOMNode && $anchor->parentNode === $worksheet) {
+          $worksheet->insertBefore($psEl, $anchor);
+        } else {
+          $worksheet->appendChild($psEl);
+        }
+        $modified = true;
+      }
+
+      $out = $dom->saveXML();
+      if (is_string($out) && $out !== '') {
+        $zip->addFromString($entryName, $out);
+      }
+    }
+
+    if ($zip->close() !== true) {
+      @unlink($tmp);
+      return null;
+    }
+    if (!$modified) {
+      @unlink($tmp);
+      return null;
+    }
+    return $tmp;
   }
 
   /**

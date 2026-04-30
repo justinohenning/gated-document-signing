@@ -135,8 +135,10 @@ function ensureXlsxPreviewPdf(array $config, Projects $projects, int $projectId,
       }
     }
   } finally {
-    if ($prep['unlink'] !== null && is_file($prep['unlink'])) {
-      @unlink($prep['unlink']);
+    foreach ($prep['unlinks'] as $tmpPath) {
+      if (is_file($tmpPath)) {
+        @unlink($tmpPath);
+      }
     }
   }
   if ($built) {

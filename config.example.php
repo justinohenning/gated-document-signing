@@ -29,6 +29,9 @@ return [
   // "single page sheets" still includes hidden tabs (one PDF page each), so this keeps page count aligned
   // with visible tabs.
   'xlsx_pdf_exclude_hidden_sheets' => true,
+  // XLSX/XLSM: rewrite each sheet’s pageSetup to fit on one printed page (helps LibreOffice 7.x
+  // when --convert-to ignores SinglePageSheets). Set false only if previews look wrong.
+  'xlsx_pdf_ooxml_fit_to_page' => true,
   'xlsx_pdf_landscape' => true,
   // Optional: fix LibreOffice CLI under php-fpm (wrapper "cd /root" errors). Usually auto from posix; override if needed.
   // 'libreoffice_home' => '/var/www/vhosts/example.com',

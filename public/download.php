@@ -282,8 +282,10 @@ if ($mode === 'view_pdf' && $previewProfile !== null && $previewProfile['kind'] 
         }
       }
     } finally {
-      if ($prep['unlink'] !== null && is_file($prep['unlink'])) {
-        @unlink($prep['unlink']);
+      foreach ($prep['unlinks'] as $tmpPath) {
+        if (is_file($tmpPath)) {
+          @unlink($tmpPath);
+        }
       }
     }
 
