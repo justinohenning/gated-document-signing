@@ -79,13 +79,21 @@ final class Projects {
 
   public function listFiles(int $projectId): array {
     return $this->db->fetchAll(
-      'SELECT * FROM project_files WHERE project_id = :pid ORDER BY sort_order ASC, id DESC',
+      'SELECT * FROM project_files WHERE project_id = :pid AND deleted_at IS NULL ORDER BY sort_order ASC, id DESC',
       [':pid' => $projectId],
     );
   }
 
+  /** Returns the user-visible name: display_name if set, else original_name. */
+  public static function displayName(array $fileRow): string {
+    $dn = isset($fileRow['display_name']) && is_string($fileRow['display_name']) && $fileRow['display_name'] !== ''
+      ? $fileRow['display_name']
+      : '';
+    return $dn !== '' ? $dn : (string)$fileRow['original_name'];
+  }
+
   /**
-   * @param int[] $orderedFileIds All file IDs for this project, top to bottom.
+   * @param int[] $orderedFileIds All active (non-deleted) file IDs for this project, top to bottom.
    */
   public function reorderProjectFiles(int $projectId, array $orderedFileIds): void {
     $ids = [];
@@ -95,7 +103,7 @@ final class Projects {
         $ids[] = $fid;
       }
     }
-    $rows = $this->db->fetchAll('SELECT id FROM project_files WHERE project_id = :pid', [':pid' => $projectId]);
+    $rows = $this->db->fetchAll('SELECT id FROM project_files WHERE project_id = :pid AND deleted_at IS NULL', [':pid' => $projectId]);
     $all = array_map(static fn(array $r): int => (int)$r['id'], $rows);
     sort($all);
     $sorted = $ids;
@@ -117,37 +125,50 @@ final class Projects {
   }
 
   /**
-   * Remove a project file row and its stored file. Path must live under this project's files directory.
+   * Soft-delete a project file: mark deleted_at so the row is hidden from file lists but
+   * analytics data (which references file_id via URL paths) is preserved for reporting.
+   * Also physically removes the stored file from disk.
    */
   public function deleteProjectFile(int $projectId, int $fileId): bool {
     $row = $this->getFile($fileId);
     if (!$row || (int)$row['project_id'] !== $projectId) {
       return false;
     }
-    $stored = (string)$row['stored_path'];
-    $dirs = $this->ensureProjectDirs($projectId);
-    $filesDir = $dirs['files'];
-    $filesDirReal = realpath($filesDir);
-    if ($filesDirReal === false) {
-      return false;
-    }
-    if ($stored === '') {
-      return false;
-    }
-    $underFiles = str_starts_with($stored, $filesDir . '/') || str_starts_with($stored, $filesDir . DIRECTORY_SEPARATOR);
-    if (!$underFiles && $stored !== $filesDir) {
-      return false;
-    }
-    if (is_file($stored)) {
-      $real = realpath($stored);
-      if ($real === false || !str_starts_with($real, $filesDirReal . DIRECTORY_SEPARATOR)) {
-        return false;
-      }
-      @unlink($real);
-    }
+    // Soft-delete: preserves the row so analytics can still resolve the file name.
     $this->db->exec(
-      'DELETE FROM project_files WHERE id = :id AND project_id = :pid',
+      'UPDATE project_files SET deleted_at = UTC_TIMESTAMP() WHERE id = :id AND project_id = :pid AND deleted_at IS NULL',
       [':id' => $fileId, ':pid' => $projectId],
+    );
+    // Remove physical file if it is safely inside this project's files directory.
+    $stored = (string)$row['stored_path'];
+    if ($stored !== '' && is_file($stored)) {
+      $storedReal = realpath($stored);
+      $dirs = $this->ensureProjectDirs($projectId);
+      $filesDirReal = realpath($dirs['files']);
+      if (
+        $storedReal !== false
+        && $filesDirReal !== false
+        && str_starts_with($storedReal, $filesDirReal . DIRECTORY_SEPARATOR)
+      ) {
+        @unlink($storedReal);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Rename a project file (sets display_name; original_name and stored path are unchanged).
+   * Pass an empty string to clear the custom name and revert to original_name.
+   */
+  public function renameFile(int $projectId, int $fileId, string $displayName): bool {
+    $row = $this->getFile($fileId);
+    if (!$row || (int)$row['project_id'] !== $projectId) {
+      return false;
+    }
+    $dn = trim($displayName);
+    $this->db->exec(
+      'UPDATE project_files SET display_name = :dn WHERE id = :id AND project_id = :pid',
+      [':dn' => $dn !== '' ? $dn : null, ':id' => $fileId, ':pid' => $projectId],
     );
     return true;
   }

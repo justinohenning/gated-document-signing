@@ -286,6 +286,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) 
   exit;
 }
 
+// Rename project file
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'rename_project_file') {
+  $pid = (int)($_POST['project_id'] ?? 0);
+  $fid = (int)($_POST['file_id'] ?? 0);
+  $newName = trim((string)($_POST['display_name'] ?? ''));
+  if ($pid > 0 && $fid > 0) {
+    $projects->renameFile($pid, $fid, $newName);
+  }
+  header('Content-Type: application/json; charset=utf-8');
+  echo json_encode(['ok' => true], JSON_UNESCAPED_SLASHES);
+  exit;
+}
+
 // Reorder project files (Documents tab)
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reorder_project_files') {
   $pid = (int)($_POST['project_id'] ?? 0);
@@ -1783,6 +1796,8 @@ if ($view === 'project') {
     echo '</tr></thead><tbody id="gdsSortableFilesTbody">';
     foreach ($files as $f) {
       $fid = (int)$f['id'];
+      $displayName = Projects::displayName($f);
+      $origName = (string)$f['original_name'];
       $previewTok = $previewSecret !== ''
         ? Util::mintAdminFilePreviewToken((int)$proj['id'], $fid, $previewSecret)
         : '';
@@ -1793,10 +1808,10 @@ if ($view === 'project') {
           'preview_token' => $previewTok,
         ]))
         : '';
-      $previewLabel = 'Preview ' . (string)$f['original_name'];
+      $previewLabel = 'Preview ' . $displayName;
       echo '<tr class="gds-sortable-file-row" draggable="true" data-file-id="' . $fid . '">';
       echo '<td class="gds-td-drag" title="Drag to reorder"><span class="gds-file-drag-icon" aria-hidden="true">⋮⋮</span></td>';
-      echo '<td><input type="checkbox" name="file_ids[]" value="' . $fid . '" aria-label="Select ' . Util::h((string)$f['original_name']) . '" /></td>';
+      echo '<td><input type="checkbox" name="file_ids[]" value="' . $fid . '" aria-label="Select ' . Util::h($displayName) . '" /></td>';
       echo '<td>';
       if ($previewPageUrl !== '') {
         echo '<button type="button" class="btn btn-secondary gds-btn--compact gds-preview-open-btn" style="padding:6px 8px;min-width:40px" title="Preview" aria-label="' . Util::h($previewLabel) . '" data-preview-url="' . Util::h($previewPageUrl) . '">';
@@ -1806,9 +1821,16 @@ if ($view === 'project') {
         echo '<span class="muted" style="display:inline-flex;padding:6px 8px" title="Set app_secret in config.php to enable preview">—</span>';
       }
       echo '</td>';
-      echo '<td>' . $fid . '</td>';
-      echo '<td>' . Util::h((string)$f['original_name']) . '</td>';
-      echo '<td class="muted">' . (int)$f['size_bytes'] . ' bytes</td>';
+      echo '<td class="muted" style="font-size:.8em">' . $fid . '</td>';
+      echo '<td>';
+      echo '<div class="gds-file-name-cell" data-file-id="' . $fid . '" data-project-id="' . (int)$proj['id'] . '" data-original-name="' . Util::h($origName) . '">';
+      echo '<span class="gds-file-name-text">' . Util::h($displayName) . '</span>';
+      echo '<button type="button" class="gds-file-rename-btn" title="Rename" aria-label="Rename ' . Util::h($displayName) . '">';
+      echo '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+      echo '</button>';
+      echo '</div>';
+      echo '</td>';
+      echo '<td class="muted">' . Util::h(number_format((int)$f['size_bytes'] / 1024, 1) . ' KB') . '</td>';
       echo '<td class="muted">' . Util::h((string)$f['created_at']) . '</td>';
       echo '</tr>';
     }
@@ -2023,13 +2045,117 @@ HTML;
       const checked = deleteProjectFilesForm.querySelectorAll("input[name=\"file_ids[]\"]:checked");
       if (checked.length === 0) {
         e.preventDefault();
+        alert("Select at least one file to delete.");
         return;
       }
-      if (!window.confirm("Delete the selected file(s) from this project? This cannot be undone.")) {
+      if (!window.confirm("Delete the selected file(s)? Analytics data is kept, but the files will be removed from the project.")) {
         e.preventDefault();
       }
     });
   }
+
+  // Inline file rename
+  document.querySelectorAll(".gds-file-rename-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const cell = btn.closest(".gds-file-name-cell");
+      if (!cell || cell.dataset.renaming) return;
+      cell.dataset.renaming = "1";
+      const span = cell.querySelector(".gds-file-name-text");
+      const currentName = span ? span.textContent.trim() : "";
+      const origName = cell.dataset.originalName || "";
+      const fileId = cell.dataset.fileId;
+      const projectId = cell.dataset.projectId;
+
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.className = "gds-inline-rename-input";
+      inp.value = currentName;
+      inp.setAttribute("aria-label", "File name");
+
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.className = "btn btn-primary gds-btn--compact";
+      saveBtn.style.cssText = "padding:2px 10px;font-size:.78em";
+      saveBtn.textContent = "Save";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "btn btn-secondary gds-btn--compact";
+      cancelBtn.style.cssText = "padding:2px 8px;font-size:.78em";
+      cancelBtn.textContent = "Cancel";
+
+      const row = document.createElement("div");
+      row.className = "gds-inline-rename-row";
+      row.appendChild(inp);
+      row.appendChild(saveBtn);
+      row.appendChild(cancelBtn);
+
+      cell.innerHTML = "";
+      cell.appendChild(row);
+      inp.focus();
+      inp.select();
+
+      function restore(newName) {
+        const displayName = newName || origName;
+        cell.dataset.renaming = "";
+        cell.innerHTML = "";
+        const ns = document.createElement("span");
+        ns.className = "gds-file-name-text";
+        ns.textContent = displayName;
+        const nb = document.createElement("button");
+        nb.type = "button";
+        nb.className = "gds-file-rename-btn";
+        nb.title = "Rename";
+        nb.setAttribute("aria-label", "Rename " + displayName);
+        nb.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+        cell.appendChild(ns);
+        cell.appendChild(nb);
+        nb.addEventListener("click", (ev) => { ev.stopPropagation(); nb.dispatchEvent(new MouseEvent("click", { bubbles: false })); });
+        // Re-wire the new button
+        cell.querySelectorAll(".gds-file-rename-btn").forEach((b2) => {
+          b2.addEventListener("click", (ev2) => {
+            ev2.stopPropagation();
+            b2.dispatchEvent(new CustomEvent("gds-rename-trigger", { bubbles: true }));
+          });
+        });
+      }
+
+      // Re-wire renamed buttons via delegation from tbody
+      cell.querySelectorAll(".gds-file-rename-btn").forEach((b) => {
+        b.addEventListener("click", (ev) => { ev.stopPropagation(); });
+      });
+
+      async function doSave() {
+        const val = inp.value.trim();
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving…";
+        try {
+          const fd = new FormData();
+          fd.append("action", "rename_project_file");
+          fd.append("project_id", projectId);
+          fd.append("file_id", fileId);
+          fd.append("display_name", val);
+          const csrfEl = document.getElementsByName("_csrf")[0];
+          fd.append("_csrf", csrfEl ? csrfEl.value : "");
+          const res = await fetch("index.php", { method: "POST", body: fd });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          restore(val);
+        } catch (err) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save";
+          alert("Rename failed. Please try again.");
+        }
+      }
+
+      saveBtn.addEventListener("click", doSave);
+      cancelBtn.addEventListener("click", () => restore(currentName));
+      inp.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); doSave(); }
+        if (ev.key === "Escape") restore(currentName);
+      });
+    });
+  });
 
   function activateProjectTab(name) {
     const map = { documents: "panel-documents", settings: "panel-settings", signed: "panel-signed" };

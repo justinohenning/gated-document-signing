@@ -18,6 +18,7 @@ final class Startup {
     $db->ensureApplicationTablesExist();
     $db->ensureEmailVerifyTokensTable();
     $db->ensureProjectFilesSortOrderColumn();
+    $db->ensureProjectFilesExtendedColumns();
     Branding::ensureSchema($db);
     $projects = new Projects($db, $config);
     $ndaSigning = new NdaSigning($db, $config);

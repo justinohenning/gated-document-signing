@@ -224,6 +224,37 @@ final class Database {
     }
   }
 
+  /**
+   * Adds display_name (user-visible rename) and deleted_at (soft-delete preserving analytics).
+   * No-op if columns already exist.
+   */
+  public function ensureProjectFilesExtendedColumns(): void {
+    foreach (
+      [
+        ['display_name', 'ALTER TABLE project_files ADD COLUMN display_name VARCHAR(255) NULL DEFAULT NULL AFTER original_name'],
+        ['deleted_at',   'ALTER TABLE project_files ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL AFTER sort_order'],
+      ] as [$col, $sql]
+    ) {
+      $exists = $this->fetchOne(
+        'SELECT 1 AS o FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
+        [':t' => 'project_files', ':c' => $col],
+      );
+      if ($exists !== null) {
+        continue;
+      }
+      try {
+        $this->pdo->exec($sql);
+      } catch (\PDOException $e) {
+        $msg = $e->getMessage();
+        if (str_contains($msg, 'Duplicate') || str_contains($msg, 'already exists')) {
+          continue;
+        }
+        throw $e;
+      }
+    }
+  }
+
   public function fetchOne(string $sql, array $params = []): ?array {
     $stmt = $this->pdo->prepare($sql);
     $stmt->execute($params);

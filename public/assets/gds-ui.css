@@ -1789,3 +1789,91 @@ a:hover {
   .gds-media-vol-wrap { display: none; }
   .gds-media-dur { display: none; }
 }
+
+/* ── Viewer pre-loader overlay ───────────────────────────────────── */
+.gds-viewer-loader {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--gds-surface, #fff);
+  border-radius: var(--gds-radius-lg, 14px);
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.gds-viewer-loader--done {
+  opacity: 0;
+}
+.gds-viewer-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--gds-border, #e5e7eb);
+  border-top-color: var(--gds-accent, #4f7cff);
+  border-radius: 50%;
+  animation: gds-spin 0.75s linear infinite;
+}
+@keyframes gds-spin {
+  to { transform: rotate(360deg); }
+}
+.gds-viewer-loader-label {
+  font-size: var(--gds-text-sm, 0.875rem);
+  color: var(--gds-muted, #6e6e73);
+}
+
+/* The card needs relative positioning so the absolute loader is clipped to it */
+.gds-viewer-card { position: relative; }
+
+/* ── Admin inline rename ──────────────────────────────────────────── */
+.gds-file-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.gds-file-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22rem;
+}
+.gds-file-rename-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--gds-muted, #6e6e73);
+  padding: 2px 4px;
+  border-radius: 5px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+tr:hover .gds-file-rename-btn,
+.gds-file-name-cell:focus-within .gds-file-rename-btn {
+  opacity: 1;
+}
+.gds-file-rename-btn:hover {
+  color: var(--gds-text, #1d1d1f);
+  background: var(--gds-border, #e5e7eb);
+}
+.gds-inline-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.gds-inline-rename-input {
+  border: 1.5px solid var(--gds-accent, #4f7cff);
+  border-radius: 7px;
+  padding: 3px 8px;
+  font-size: var(--gds-text-sm, 0.875rem);
+  outline: none;
+  min-width: 0;
+  flex: 1;
+  max-width: 22rem;
+  background: var(--gds-surface, #fff);
+  color: var(--gds-text, #1d1d1f);
+}

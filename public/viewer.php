@@ -97,7 +97,7 @@ if ($isNda) {
     renderFooter();
     exit;
   }
-  $title = (string)$file['original_name'];
+  $title = Projects::displayName($file);
   $adminQs = [];
   if ($adminPreviewAuthorized) {
     if ($previewTokenIn !== '') {
@@ -203,6 +203,10 @@ $pdfPad = $isExcelPdfPreview ? '100px' : '18px 26px';
 
 echo <<<HTML
 <div class="card gds-viewer-card" style="padding:0;overflow:hidden">
+  <div id="gdsViewerLoader" class="gds-viewer-loader" aria-live="polite" aria-label="Loading document">
+    <div class="gds-viewer-spinner"></div>
+    <div class="gds-viewer-loader-label">Loading…</div>
+  </div>
   <div class="gds-viewer-bar">
     <div class="gds-viewer-bar-inner">
       {$backControlHtml}
@@ -313,6 +317,13 @@ echo <<<HTML
   const watermarkUrl = {$wmUrlJs};
   const viewerIp = {$ipJs};
 
+  function gdsHideLoader() {
+    const loader = document.getElementById("gdsViewerLoader");
+    if (!loader) return;
+    loader.classList.add("gds-viewer-loader--done");
+    setTimeout(() => { loader.style.display = "none"; }, 350);
+  }
+
   const fetchOpts = { credentials: "same-origin", cache: "no-store" };
   const workerSrc = new URL("assets/vendor/pdf.worker.min.js", document.baseURI).href;
 
@@ -376,6 +387,7 @@ echo <<<HTML
 
     mediaEl.addEventListener("loadedmetadata", () => {
       if (durEl) durEl.textContent = fmtTime(mediaEl.duration);
+      gdsHideLoader();
     });
     mediaEl.addEventListener("timeupdate", syncProgress);
     mediaEl.addEventListener("play",   syncPlayIcon);
@@ -471,10 +483,11 @@ echo <<<HTML
             throw new Error("HEIC/HEIF preview is not supported in this browser. Use Download or convert to JPEG/PNG.");
           }
           const o = URL.createObjectURL(blob);
-          img.onload = () => { try { URL.revokeObjectURL(o); } catch (e) {} };
+          img.onload = () => { try { URL.revokeObjectURL(o); } catch (e) {} gdsHideLoader(); };
           img.onerror = () => {
             try { URL.revokeObjectURL(o); } catch (e) {}
             img.alt = "Preview failed";
+            gdsHideLoader();
             if (pane) {
               pane.insertAdjacentHTML("beforeend", "<p class=\"gds-sheet-note\" style=\"margin-top:12px\">Could not load image preview. Try Download or open the file in a new tab.</p>");
             }
@@ -482,6 +495,7 @@ echo <<<HTML
           img.src = o;
         } catch (e) {
           console.error(e);
+          gdsHideLoader();
           if (pane) {
             pane.insertAdjacentHTML("beforeend", "<p class=\"gds-sheet-note\">Could not load image preview (" + (e && e.message ? e.message : "error") + ").</p>");
           }
@@ -504,9 +518,11 @@ echo <<<HTML
             ? t.slice(0, max) + "\\n\\n\u2026 Preview truncated (" + String(t.length) + " characters total)."
             : t;
         }
+        gdsHideLoader();
       } catch (e) {
         console.error(e);
         if (pre) pre.textContent = "Could not load file for preview.";
+        gdsHideLoader();
       }
     })();
     return;
@@ -539,8 +555,10 @@ echo <<<HTML
           renderEndnotes: true,
           renderAltChunks: false,
         });
+        gdsHideLoader();
       } catch (e) {
         console.error(e);
+        gdsHideLoader();
         if (host) {
           const msg = (e && e.message) ? String(e.message) : "Could not preview this document.";
           host.innerHTML = "<p class=\"gds-sheet-note\">" + msg.replace(/</g, "&lt;").replace(/>/g, "&gt;") + " You can try Download if enabled.</p>";
@@ -893,6 +911,7 @@ echo <<<HTML
         },
       });
       xs.loadData(stox(wb));
+      gdsHideLoader();
 
       window.__gdsViewerAnalyticsContext = function () {
         try {
@@ -1134,8 +1153,10 @@ echo <<<HTML
     pageCountEl.textContent = String(pdfDoc.numPages);
     setZoomLabel();
     await renderPage(pageNum);
+    gdsHideLoader();
   })().catch((err) => {
     console.error(err);
+    gdsHideLoader();
     pdfFatal((err && err.message) ? String(err.message) : "Failed to load PDF.");
   });
 })();

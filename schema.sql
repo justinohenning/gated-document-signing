@@ -71,9 +71,11 @@ CREATE TABLE IF NOT EXISTS project_files (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   project_id INT UNSIGNED NOT NULL,
   original_name VARCHAR(255) NOT NULL,
+  display_name VARCHAR(255) NULL DEFAULT NULL, -- admin-set display name (null = use original_name)
   stored_path TEXT NOT NULL,
   size_bytes INT UNSIGNED NOT NULL DEFAULT 0,
   sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+  deleted_at DATETIME NULL DEFAULT NULL,        -- soft-delete; preserves analytics data
   created_at DATETIME NOT NULL,
   PRIMARY KEY (id),
   KEY idx_files_project (project_id),

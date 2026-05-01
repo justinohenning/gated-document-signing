@@ -441,9 +441,9 @@ if ($signed) {
     echo '<div class="gds-table-wrap"><table>';
     echo '<thead><tr><th style="width:62%">Name</th><th style="width:18%">Size</th><th style="width:20%">Uploaded</th></tr></thead><tbody>';
     foreach ($files as $f) {
-      $name = Util::h((string)$f['original_name']);
       $id = (int)$f['id'];
       $orig = (string)$f['original_name'];
+      $name = Util::h(Projects::displayName($f));
       $inAppView = Util::projectFilePreviewProfile($orig) !== null;
       $href = $inAppView
         ? ('viewer.php?p=' . urlencode($projectToken) . '&file_id=' . urlencode((string)$id))
