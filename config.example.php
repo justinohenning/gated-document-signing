@@ -30,7 +30,13 @@ return [
   'mail_from_name' => 'Gated Document Signing',
   // How long the email confirmation link stays valid (hours; max 168).
   'email_verify_ttl_hours' => 24,
-  // Optional SMTP (otherwise PHP mail() is used — often disabled on shared hosting).
+  // ── Email delivery ──────────────────────────────────────────────────────────
+  // Option A — SendGrid API key (recommended; bypasses SMTP port blocks, best deliverability).
+  // Create a key at https://app.sendgrid.com/settings/api_keys with "Mail Send" permission,
+  // then verify your sender domain under Settings → Sender Authentication.
+  // 'sendgrid_api_key' => 'SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+
+  // Option B — SMTP relay (used only when sendgrid_api_key is not set).
   // 'smtp' => [
   //   'host' => 'smtp.example.com',
   //   'port' => 587,
@@ -38,6 +44,9 @@ return [
   //   'password' => '',
   //   'encryption' => 'tls', // tls (STARTTLS on 587) or ssl (SMTPS on 465)
   // ],
+
+  // Option C — PHP mail() is the fallback when neither key above is set.
+  // It is unreliable on most shared hosts and will often land in spam.
 
   // XLSX: 'pdf' (default) = high-fidelity preview via Gotenberg/LibreOffice; 'sheet' = in-browser grid.
   'xlsx_preview_mode' => 'pdf',
