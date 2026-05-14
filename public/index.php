@@ -6,10 +6,8 @@ $projectToken = isset($_GET['p']) ? (string)$_GET['p'] : '';
 $accessToken = isset($_GET['t']) ? (string)$_GET['t'] : '';
 
 if ($projectToken === '') {
-  renderHeader('Project link required');
-  renderAnalyticsTracker($projectToken, 'missing_project', null);
-  echo '<div class="card"><div class="err"><strong>Missing project link.</strong> Please use the project URL you were sent.</div></div>';
-  renderFooter();
+  // No project token — send visitors to the admin login instead of an error.
+  header('Location: admin/index.php?view=login');
   exit;
 }
 
