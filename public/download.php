@@ -79,6 +79,11 @@ if (isset($_GET['contract'])) {
     echo 'Not authorized';
     exit;
   }
+  if (!$ndaSigning->hasSigned($projectId, $emailGate)) {
+    http_response_code(403);
+    echo 'Not authorized';
+    exit;
+  }
   $inv = $investment->getSettings($projectId);
   if (((int)($inv['enabled'] ?? 0)) !== 1) {
     http_response_code(404);
