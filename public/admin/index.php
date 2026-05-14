@@ -58,7 +58,7 @@ if ($view === 'login') {
 Auth::requireAdmin();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-  $skipPostCsrf = isset($_GET['api']) && (string)$_GET['api'] === 'save_nda_fields';
+  $skipPostCsrf = isset($_GET['api']) && in_array((string)$_GET['api'], ['save_nda_fields', 'save_contract_fields'], true);
   if (!$skipPostCsrf && !Auth::verifyCsrfToken((string)($_POST['_csrf'] ?? ''))) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
@@ -217,6 +217,53 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_GET['api']) && $
   exit;
 }
 
+// Save investment contract field placement (JSON)
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_GET['api']) && $_GET['api'] === 'save_contract_fields') {
+  $data = requireJsonBody();
+  if (!Auth::verifyCsrfToken((string)($data['_csrf'] ?? ''))) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'csrf'], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+  $pid = (int)($data['project_id'] ?? 0);
+  $defs = $data['defs'] ?? null;
+
+  header('Content-Type: application/json');
+  if ($pid <= 0 || !is_array($defs)) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'Invalid payload'], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  $allowedKeys = ['signature', 'signed_date', 'signer_name', 'signer_position', 'signer_address', 'free_text', 'commitment_amount'];
+  $clean = [];
+  foreach ($defs as $d) {
+    if (!is_array($d)) {
+      continue;
+    }
+    $fk = (string)($d['field_key'] ?? '');
+    if (!in_array($fk, $allowedKeys, true)) {
+      continue;
+    }
+    $clean[] = [
+      'field_key' => $fk,
+      'field_label' => isset($d['field_label']) ? (string)$d['field_label'] : null,
+      'page_num' => (int)($d['page_num'] ?? 1),
+      'x' => (float)($d['x'] ?? 0),
+      'y' => (float)($d['y'] ?? 0),
+      'w' => (float)($d['w'] ?? 0.2),
+      'h' => (float)($d['h'] ?? 0.05),
+      'required' => (int)($d['required'] ?? 1),
+    ];
+  }
+
+  $investment->replaceContractFieldDefs($pid, $clean);
+
+  echo json_encode(['ok' => true], JSON_UNESCAPED_SLASHES);
+  exit;
+}
+
 // Upload NDA
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_nda') {
   $pid = (int)($_POST['project_id'] ?? 0);
@@ -248,6 +295,59 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) 
     $projects->attachNda($pid, $orig, $dest);
   }
   header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=documents&toast=1');
+  exit;
+}
+
+// Upload investment contract PDF
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_investment_contract') {
+  $pid = (int)($_POST['project_id'] ?? 0);
+  if ($pid > 0 && isset($_FILES['contract_pdf']) && is_uploaded_file($_FILES['contract_pdf']['tmp_name'])) {
+    $tmp = $_FILES['contract_pdf']['tmp_name'];
+    $fh = @fopen($tmp, 'rb');
+    $magicOk = false;
+    if ($fh) {
+      $magicOk = (fread($fh, 4) === '%PDF');
+      fclose($fh);
+    }
+    $mimeOk = !function_exists('finfo_open');
+    if (function_exists('finfo_open')) {
+      $fi = finfo_open(FILEINFO_MIME_TYPE);
+      if ($fi) {
+        $mt = finfo_file($fi, $tmp);
+        finfo_close($fi);
+        $mimeOk = ($mt === 'application/pdf' || $mt === 'application/x-pdf');
+      }
+    }
+    if (!$magicOk || !$mimeOk) {
+      header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=documents&contract_err=mime');
+      exit;
+    }
+    $dirs = $projects->ensureProjectDirs($pid);
+    $orig = (string)$_FILES['contract_pdf']['name'];
+    $dest = $dirs['contract'] . '/contract_' . time() . '.pdf';
+    move_uploaded_file($tmp, $dest);
+    $investment->attachContract($pid, $orig, $dest);
+  }
+  header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=documents&toast=1');
+  exit;
+}
+
+// Save investment module settings
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_investment_settings') {
+  $pid = (int)($_POST['project_id'] ?? 0);
+  if ($pid > 0) {
+    $goalRaw = trim((string)($_POST['goal_amount'] ?? '0'));
+    $goal = (float)str_replace([',', ' '], '', $goalRaw);
+    $minRaw = trim((string)($_POST['min_commitment'] ?? ''));
+    $min = $minRaw === '' ? null : (float)str_replace([',', ' '], '', $minRaw);
+    $investment->saveSettings($pid, [
+      'enabled' => isset($_POST['investment_enabled']) && (string)$_POST['investment_enabled'] === '1',
+      'goal_amount' => $goal,
+      'goal_currency' => (string)($_POST['goal_currency'] ?? 'USD'),
+      'min_commitment' => $min,
+    ]);
+  }
+  header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=settings&toast=1');
   exit;
 }
 
@@ -790,6 +890,106 @@ saveBtn.addEventListener("click", async () => {
 
 init().catch(err => { console.error(err); setStatus("Failed to load PDF."); });
 ';
+  echo '</script>';
+
+  adminFooter();
+  exit;
+}
+
+if ($view === 'investment_contract') {
+  $pid = (int)($_GET['project_id'] ?? 0);
+  $proj = $db->fetchOne('SELECT * FROM projects WHERE id = :id LIMIT 1', [':id' => $pid]);
+  if (!$proj) {
+    adminHeader('Not found');
+    echo '<div class="card"><h2 class="gds-page-title">Not found</h2><div class="err gds-flash"><strong>Project not found.</strong></div></div>';
+    adminFooter();
+    exit;
+  }
+
+  $contract = $investment->getContract($pid);
+  if (!$contract) {
+    adminHeader('Investment contract fields');
+    echo '<div class="card">';
+    echo '<h2 class="gds-page-title">Investment contract</h2>';
+    echo '<div class="err gds-flash"><strong>No investment contract PDF uploaded yet.</strong> Upload a PDF from the project’s Documents tab first.</div>';
+    echo '<p class="gds-lead"><a href="index.php?view=project&project_id=' . (int)$pid . '">← Back to project</a></p>';
+    echo '</div>';
+    adminFooter();
+    exit;
+  }
+
+  $shareLink = 'index.php?view=project&project_id=' . urlencode((string)$pid);
+  $pdfUrl = 'investment-contract.php?project_id=' . urlencode((string)$pid);
+  $existing = $investment->listContractFieldDefs($pid);
+  $existingJson = json_encode($existing, JSON_UNESCAPED_SLASHES);
+  $pdfUrlEsc = Util::h($pdfUrl);
+  $pidEsc = (int)$pid;
+
+  adminHeader('Investment contract fields');
+  echo '<div class="card">';
+  echo '<div class="gds-page-header">';
+  echo '<div><h2 class="gds-page-title">Place contract fields</h2><p class="gds-lead" style="margin-bottom:0">Drag and resize boxes on the investment contract PDF. Include a <strong>Commitment amount</strong> field if the pledge should appear on the signed PDF.</p></div>';
+  echo '<div class="gds-toolbar">';
+  echo '<a class="gds-link-back" href="' . Util::h($shareLink) . '">← Back to project</a>';
+  echo '<button type="button" class="btn btn-danger gds-btn--compact" id="invRemoveFieldBtn" title="Remove selected field">Remove field</button>';
+  echo '<button type="button" class="btn btn-primary gds-btn--compact" id="invSaveBtn">Save</button>';
+  echo '</div></div>';
+
+  echo '<hr class="gds-divider" />';
+
+  echo '<div class="gds-nda-field-layout">';
+  echo '<div class="gds-nda-field-sidebar">';
+  echo '<div class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Fields</div>';
+  echo '<div id="invFieldsList" class="gds-field-palette">';
+  $invFieldLabels = [
+    'signature' => 'Signature',
+    'signed_date' => 'Date',
+    'signer_name' => 'Name',
+    'signer_position' => 'Position',
+    'signer_address' => 'Address',
+    'commitment_amount' => 'Commitment amount',
+    'free_text' => 'Free text',
+  ];
+  foreach ($invFieldLabels as $k => $label) {
+    echo '<button type="button" class="invFieldBtn fieldBtn" draggable="true" data-key="' . Util::h($k) . '">' . Util::h($label) . '</button>';
+  }
+  echo '</div>';
+  echo '<p class="gds-help" style="margin-top:var(--gds-space-4)">Tip: click a field, then click an <strong>empty</strong> area on the PDF to place it.</p>';
+  echo '</div>';
+
+  echo '<div class="gds-nda-field-main">';
+  echo '<div class="gds-nda-preview">';
+  echo '<div class="gds-nda-preview-toolbar">';
+  echo '<div class="gds-nda-preview-toolbar-inner" style="display:flex;align-items:center;gap:var(--gds-space-3);flex-wrap:wrap">';
+  echo '<strong style="font-weight:600;font-size:var(--gds-text-sm);color:var(--gds-text)">Preview</strong>';
+  echo '<span class="muted">Page</span> <span id="invPageLabel" class="muted">1</span> <span class="muted">/</span> <span id="invPageCount" class="muted">?</span>';
+  echo '</div>';
+  echo '<div class="gds-nda-nav">';
+  echo '<button type="button" class="btn btn-secondary gds-btn--compact" id="invPrevPageBtn">Prev</button>';
+  echo '<button type="button" class="btn btn-secondary gds-btn--compact" id="invNextPageBtn">Next</button>';
+  echo '<a href="' . $pdfUrlEsc . '" target="_blank" rel="noopener">Open PDF</a>';
+  echo '</div>';
+  echo '</div>';
+  echo '<div class="gds-nda-canvas-wrap">';
+  echo '<div style="position:relative">';
+  echo '<canvas id="invPdfCanvas" style="display:block;width:100%;height:auto"></canvas>';
+  echo '<div id="invOverlay" style="position:absolute;inset:0"></div>';
+  echo '</div>';
+  echo '</div>';
+  echo '</div>';
+  echo '</div>';
+  echo '</div>';
+
+  echo '<div id="invStatus" class="muted" style="margin-top:var(--gds-space-3)"></div>';
+  echo '</div>';
+
+  echo '<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>';
+  echo '<script>';
+  echo 'const INV_PROJECT_ID = ' . $pidEsc . ';';
+  echo 'const INV_CSRF = ' . json_encode(Auth::csrfToken()) . ';';
+  echo 'const INV_DOC_URL = ' . json_encode($pdfUrl, JSON_UNESCAPED_SLASHES) . ';';
+  echo 'const invExisting = ' . ($existingJson ?: '[]') . ';';
+  readfile(__DIR__ . '/investment-contract-fields.js');
   echo '</script>';
 
   adminFooter();
@@ -1696,6 +1896,9 @@ if ($view === 'project') {
   if (isset($_GET['nda_err']) && (string)$_GET['nda_err'] === 'mime') {
     echo '<div class="err gds-flash"><strong>NDA must be a valid PDF file.</strong></div>';
   }
+  if (isset($_GET['contract_err']) && (string)$_GET['contract_err'] === 'mime') {
+    echo '<div class="err gds-flash"><strong>Investment contract must be a valid PDF file.</strong></div>';
+  }
   if (isset($_GET['file_err']) && (string)$_GET['file_err'] === 'ext') {
     echo '<div class="err gds-flash"><strong>That file type is not allowed.</strong></div>';
   }
@@ -1710,6 +1913,8 @@ if ($view === 'project') {
   $wmPath = (string)($proj['watermark_image_path'] ?? '');
   $welcomeEnabled = ((int)($proj['welcome_enabled'] ?? 0)) === 1;
   $welcomeMessage = (string)($proj['welcome_message'] ?? '');
+  $invSettings = $investment->getSettings((int)$proj['id']);
+  $invContract = $investment->getContract((int)$proj['id']);
 
   echo '<div class="card" style="padding:0;overflow:hidden;margin-bottom:var(--gds-space-4)">';
   echo '<div class="gds-share-banner">';
@@ -1727,7 +1932,7 @@ if ($view === 'project') {
   echo '<div class="gds-admin-tabbar" role="tablist" aria-label="Project sections">';
   echo '<button type="button" class="gds-admin-tab" role="tab" id="tabBtn-documents" aria-controls="panel-documents" aria-selected="' . $tabDocumentsSel . '" data-tab="documents">Documents</button>';
   echo '<button type="button" class="gds-admin-tab" role="tab" id="tabBtn-settings" aria-controls="panel-settings" aria-selected="' . $tabSettingsSel . '" data-tab="settings">Settings</button>';
-  echo '<button type="button" class="gds-admin-tab" role="tab" id="tabBtn-signed" aria-controls="panel-signed" aria-selected="' . $tabSignedSel . '" data-tab="signed">Signed users</button>';
+  echo '<button type="button" class="gds-admin-tab" role="tab" id="tabBtn-signed" aria-controls="panel-signed" aria-selected="' . $tabSignedSel . '" data-tab="signed">Visitor profiles</button>';
   echo '</div>';
 
   echo '<div id="panel-documents" class="gds-admin-tab-panel" role="tabpanel" aria-labelledby="tabBtn-documents"' . $panelDocumentsHidden . '>';
@@ -1757,6 +1962,38 @@ if ($view === 'project') {
   echo '  </div>';
   echo '  <div class="dzActions">';
   echo '    <label class="dzBtn"><input type="file" name="nda_pdf" accept="application/pdf" required style="display:none" />Choose file</label>';
+  echo '  </div>';
+  echo '</div>';
+  echo '</form>';
+  echo '</div>';
+
+  echo '<hr class="gds-divider" />';
+  echo '<div style="margin-bottom:var(--gds-space-3)">';
+  echo '<div class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Investment contract</div>';
+  echo '<p class="gds-help" style="margin-top:0">Used when the <strong>Investment module</strong> is enabled in Settings. Visitors sign this after pledging a commitment amount.</p>';
+  if ($invContract) {
+    echo '<div class="ok gds-flash"><strong>Uploaded:</strong> ' . Util::h((string)$invContract['original_name']) . '</div>';
+    echo '<div class="subCard" style="margin-bottom:var(--gds-space-3);display:flex;justify-content:space-between;align-items:center;gap:var(--gds-space-3);flex-wrap:wrap">';
+    echo '<div style="min-width:220px">';
+    echo '<div style="font-weight:600;font-size:var(--gds-text-sm);color:var(--gds-text)">Contract fields</div>';
+    echo '<div class="muted" style="margin-top:2px;font-size:var(--gds-text-xs)">Place signature, commitment amount, and other fields on the PDF.</div>';
+    echo '</div>';
+    echo '<a class="btn btn-primary" href="index.php?view=investment_contract&project_id=' . (int)$proj['id'] . '">Edit fields</a>';
+    echo '</div>';
+  } else {
+    echo '<div class="muted gds-flash" style="margin-bottom:var(--gds-space-2)">No investment contract PDF uploaded yet.</div>';
+  }
+  echo '<form method="post" enctype="multipart/form-data" data-auto-upload="1">';
+  echo Auth::csrfFieldHtml();
+  echo '<input type="hidden" name="action" value="upload_investment_contract" />';
+  echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
+  echo '<div class="dropzone" data-dz="contract">';
+  echo '  <div class="dzText">';
+  echo '    <div class="dzTitle">Drop investment contract PDF here</div>';
+  echo '    <div class="muted dzSub">Or choose a file. Upload starts immediately.</div>';
+  echo '  </div>';
+  echo '  <div class="dzActions">';
+  echo '    <label class="dzBtn"><input type="file" name="contract_pdf" accept="application/pdf" required style="display:none" />Choose file</label>';
   echo '  </div>';
   echo '</div>';
   echo '</form>';
@@ -1927,6 +2164,36 @@ HTML;
   echo '</form>';
 
   echo '<hr class="gds-divider" />';
+  echo '<h3 class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Investment module</h3>';
+  echo '<p class="gds-help" style="margin-top:0">When enabled, signed visitors see funding progress on the files page and can pledge an amount and sign the investment contract PDF.</p>';
+  echo '<form method="post">';
+  echo Auth::csrfFieldHtml();
+  echo '<input type="hidden" name="action" value="save_investment_settings" />';
+  echo '<input type="hidden" name="project_id" value="' . (int)$proj['id'] . '" />';
+  $invEn = ((int)($invSettings['enabled'] ?? 0)) === 1;
+  $goalAmt = (string)($invSettings['goal_amount'] ?? '0');
+  $goalCur = Util::h((string)($invSettings['goal_currency'] ?? 'USD'));
+  $minC = $invSettings['min_commitment'];
+  $minStr = $minC !== null && $minC > 0 ? (string)$minC : '';
+  echo '<div class="toggleRow">';
+  echo '<div class="label"><strong>Enable investment module</strong><div class="muted">Shows progress bar and commitment flow on the visitor files page.</div></div>';
+  echo '<label class="toggle" aria-label="Enable investment module"><input type="checkbox" name="investment_enabled" value="1"' . ($invEn ? ' checked' : '') . ' /><span class="switch" aria-hidden="true"></span></label>';
+  echo '</div>';
+  echo '<div class="row" style="margin-top:var(--gds-space-3);flex-wrap:wrap">';
+  echo '<div class="gds-field" style="margin-bottom:0;min-width:160px">';
+  echo '<label class="gds-label" for="goal_amount">Funding goal amount</label>';
+  echo '<input id="goal_amount" name="goal_amount" type="text" inputmode="decimal" value="' . Util::h($goalAmt) . '" placeholder="1000000" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0;min-width:100px">';
+  echo '<label class="gds-label" for="goal_currency">Currency</label>';
+  echo '<input id="goal_currency" name="goal_currency" type="text" maxlength="8" value="' . $goalCur . '" placeholder="USD" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0;min-width:160px">';
+  echo '<label class="gds-label" for="min_commitment">Minimum commitment (optional)</label>';
+  echo '<input id="min_commitment" name="min_commitment" type="text" inputmode="decimal" value="' . Util::h($minStr) . '" placeholder="0" /></div>';
+  echo '</div>';
+  echo '<div class="gds-actions" style="margin-top:var(--gds-space-3)"><button type="submit" class="btn btn-primary">Save investment settings</button></div>';
+  echo '</form>';
+
+  echo '<hr class="gds-divider" />';
   echo '<div class="cardTitle" style="margin-bottom:var(--gds-space-3)"><h3>Watermark image</h3></div>';
   if ($wmPath !== '' && is_file($wmPath)) {
     echo '<div class="ok" style="margin-bottom:10px"><strong>Uploaded:</strong> ' . Util::h($wmName !== '' ? $wmName : basename($wmPath)) . '</div>';
@@ -1946,26 +2213,63 @@ HTML;
 
   echo '<div id="panel-signed" class="gds-admin-tab-panel" role="tabpanel" aria-labelledby="tabBtn-signed"' . $panelSignedHidden . '>';
   $sigs = $ndaSigning->listSignaturesForProject((int)$proj['id']);
-  if ($sigs) {
-    echo '<div class="gds-table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>Position</th><th>Address</th><th>Signed at</th><th>Signed NDA</th></tr></thead><tbody>';
-    foreach ($sigs as $s) {
-      $pdfPath = isset($s['signed_pdf_path']) ? (string)$s['signed_pdf_path'] : '';
-      $hasPdf = $pdfPath !== '' && is_file($pdfPath);
-      $dl = 'download-signed-nda.php?project_id=' . (int)$proj['id'] . '&signature_id=' . (int)$s['id'];
-      echo '<tr>';
-      echo '<td>' . Util::h((string)$s['signer_email']) . '</td>';
-      echo '<td>' . Util::h((string)$s['signer_name']) . '</td>';
-      echo '<td>' . Util::h((string)$s['signer_position']) . '</td>';
-      echo '<td class="muted">' . Util::h((string)($s['signer_address'] ?? '')) . '</td>';
-      echo '<td class="muted">' . Util::h((string)$s['signed_at']) . '</td>';
-      if ($hasPdf) {
-        echo '<td><a href="' . Util::h($dl) . '">Download PDF</a></td>';
-      } else {
-        echo '<td class="muted">Not stored</td>';
-      }
-      echo '</tr>';
+  $commits = $investment->listCommitmentsForProject((int)$proj['id']);
+  $commitByEmail = [];
+  foreach ($commits as $c) {
+    $em = strtolower((string)($c['signer_email'] ?? ''));
+    if ($em !== '') {
+      $commitByEmail[$em] = $c;
     }
-    echo '</tbody></table></div>';
+  }
+  if ($sigs) {
+    echo '<p class="gds-lead" style="margin-top:0">Each row is someone who signed the NDA. Download their signed NDA and (if applicable) signed investment contract.</p>';
+    foreach ($sigs as $s) {
+      $sid = (int)$s['id'];
+      $sem = strtolower((string)$s['signer_email']);
+      $pdfPath = isset($s['signed_pdf_path']) ? (string)$s['signed_pdf_path'] : '';
+      $hasNdaPdf = $pdfPath !== '' && is_file($pdfPath);
+      $ndaDl = 'download-signed-nda.php?project_id=' . (int)$proj['id'] . '&signature_id=' . $sid;
+      $cmt = $commitByEmail[$sem] ?? null;
+      $cid = $cmt ? (int)$cmt['id'] : 0;
+      $cPdf = $cmt && isset($cmt['signed_pdf_path']) ? (string)$cmt['signed_pdf_path'] : '';
+      $hasContractPdf = $cPdf !== '' && is_file($cPdf);
+      $contractDl = $cid > 0 ? ('download-signed-contract.php?project_id=' . (int)$proj['id'] . '&commitment_id=' . $cid) : '';
+      $amt = $cmt ? (float)($cmt['committed_amount'] ?? 0) : null;
+      $cur = $cmt ? (string)($cmt['currency'] ?? 'USD') : '';
+      echo '<div class="card gds-visitor-profile" style="margin-bottom:var(--gds-space-3)">';
+      echo '<div class="gds-visitor-profile__head">';
+      echo '<div><strong>' . Util::h((string)$s['signer_name']) . '</strong>';
+      echo '<div class="muted" style="font-size:var(--gds-text-sm);margin-top:2px">' . Util::h((string)$s['signer_email']) . '</div></div>';
+      echo '<div class="muted" style="font-size:var(--gds-text-xs);text-align:right">NDA signed<br>' . Util::h((string)$s['signed_at']) . '</div>';
+      echo '</div>';
+      echo '<div class="gds-visitor-profile__grid">';
+      echo '<div><span class="muted" style="font-size:var(--gds-text-xs)">Position</span><br>' . Util::h((string)$s['signer_position']) . '</div>';
+      echo '<div><span class="muted" style="font-size:var(--gds-text-xs)">IP</span><br>' . Util::h((string)($s['ip_address'] ?? '')) . '</div>';
+      echo '</div>';
+      echo '<div class="muted" style="margin-top:var(--gds-space-2);font-size:var(--gds-text-sm)"><strong>Address</strong><br>' . Util::h((string)($s['signer_address'] ?? '')) . '</div>';
+      if ($amt !== null) {
+        echo '<div style="margin-top:var(--gds-space-2)"><span class="muted">Funding commitment:</span> <strong>' . Util::h($cur) . ' ' . Util::h(number_format($amt, 2)) . '</strong>';
+        if ($cmt && !empty($cmt['committed_at'])) {
+          echo ' <span class="muted">(' . Util::h((string)$cmt['committed_at']) . ')</span>';
+        }
+        echo '</div>';
+      } else {
+        echo '<div class="muted" style="margin-top:var(--gds-space-2)">No funding commitment on file.</div>';
+      }
+      echo '<div class="gds-actions" style="margin-top:var(--gds-space-3);flex-wrap:wrap;gap:var(--gds-space-2)">';
+      if ($hasNdaPdf) {
+        echo '<a class="btn btn-secondary gds-btn--compact" href="' . Util::h($ndaDl) . '">Download signed NDA</a>';
+      } else {
+        echo '<span class="muted">Signed NDA PDF not stored</span>';
+      }
+      if ($hasContractPdf && $contractDl !== '') {
+        echo '<a class="btn btn-secondary gds-btn--compact" href="' . Util::h($contractDl) . '">Download signed contract</a>';
+      } elseif ($invEn && $invContract) {
+        echo '<span class="muted">No signed contract yet</span>';
+      }
+      echo '</div>';
+      echo '</div>';
+    }
   } else {
     echo '<p class="gds-lead" style="margin-bottom:0">No signatures yet.</p>';
   }

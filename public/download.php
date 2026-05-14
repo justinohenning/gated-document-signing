@@ -61,6 +61,49 @@ if (isset($_GET['nda'])) {
   exit;
 }
 
+// Investment contract PDF (for signing flow; requires verified visitor email or access cookie)
+if (isset($_GET['contract'])) {
+  $emailGate = Auth::visitorEmail($projectId);
+  if ($emailGate === null) {
+    $cookieToken = $_COOKIE['gds_access_' . $projectId] ?? '';
+    if (is_string($cookieToken) && $cookieToken !== '') {
+      $emailFromCookie = $ndaSigning->validateAccessToken($projectId, $cookieToken);
+      if ($emailFromCookie) {
+        Auth::setVisitorEmail($projectId, $emailFromCookie);
+        $emailGate = $emailFromCookie;
+      }
+    }
+  }
+  if ($emailGate === null) {
+    http_response_code(403);
+    echo 'Not authorized';
+    exit;
+  }
+  $inv = $investment->getSettings($projectId);
+  if (((int)($inv['enabled'] ?? 0)) !== 1) {
+    http_response_code(404);
+    echo 'Investment module not enabled';
+    exit;
+  }
+  $contract = $investment->getContract($projectId);
+  if (!$contract) {
+    http_response_code(404);
+    echo 'Contract not configured';
+    exit;
+  }
+  $path = (string)$contract['stored_path'];
+  if (!is_file($path)) {
+    http_response_code(404);
+    echo 'Contract missing';
+    exit;
+  }
+  header('Content-Type: application/pdf');
+  header('Content-Disposition: inline; filename="' . basename((string)$contract['original_name']) . '"');
+  header('Content-Length: ' . filesize($path));
+  readfile($path);
+  exit;
+}
+
 $email = Auth::visitorEmail($projectId);
 
 // Signed receipt download (requires signed access)
@@ -168,6 +211,44 @@ if (isset($_GET['signed_nda'])) {
   header('Content-Disposition: attachment; filename="' . $filename . '"');
   header('Content-Length: ' . filesize($path));
   readfile($path);
+  exit;
+}
+
+// Signed investment contract PDF (signer only)
+if (isset($_GET['signed_contract'])) {
+  $sem = Auth::visitorEmail($projectId);
+  if ($sem === null) {
+    $cookieToken = $_COOKIE['gds_access_' . $projectId] ?? '';
+    if (is_string($cookieToken) && $cookieToken !== '') {
+      $emailFromCookie = $ndaSigning->validateAccessToken($projectId, $cookieToken);
+      if ($emailFromCookie) {
+        Auth::setVisitorEmail($projectId, $emailFromCookie);
+        $sem = $emailFromCookie;
+      }
+    }
+  }
+  if ($sem === null || !$ndaSigning->hasSigned($projectId, $sem)) {
+    http_response_code(403);
+    echo 'Not authorized';
+    exit;
+  }
+  $cmt = $investment->getCommitment($projectId, $sem);
+  if (!$cmt) {
+    http_response_code(404);
+    echo 'No commitment on file';
+    exit;
+  }
+  $pdfPath = isset($cmt['signed_pdf_path']) ? (string)$cmt['signed_pdf_path'] : '';
+  if ($pdfPath === '' || !is_file($pdfPath)) {
+    http_response_code(404);
+    echo 'Signed contract not available';
+    exit;
+  }
+  $filename = 'Signed_contract_' . preg_replace('/[^a-z0-9._-]+/i', '_', (string)$project['name']) . '_' . gmdate('Y-m-d') . '.pdf';
+  header('Content-Type: application/pdf');
+  header('Content-Disposition: attachment; filename="' . $filename . '"');
+  header('Content-Length: ' . (string)filesize($pdfPath));
+  readfile($pdfPath);
   exit;
 }
 

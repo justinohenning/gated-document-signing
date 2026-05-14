@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/Mail.php';
 require_once __DIR__ . '/VisitorEmailVerification.php';
+require_once __DIR__ . '/Investment.php';
 
 /**
  * Shared application wiring for public/ and admin/ bootstraps.
  */
 final class Startup {
   /**
-   * @return array{0: Database, 1: Projects, 2: NdaSigning, 3: VisitorEmailVerification}
+   * @return array{0: Database, 1: Projects, 2: NdaSigning, 3: VisitorEmailVerification, 4: Investment}
    */
   public static function connect(array $config): array {
     Auth::startSession();
@@ -19,12 +20,14 @@ final class Startup {
     $db->ensureEmailVerifyTokensTable();
     $db->ensureProjectFilesSortOrderColumn();
     $db->ensureProjectFilesExtendedColumns();
+    $db->ensureInvestmentTables();
     Branding::ensureSchema($db);
     $projects = new Projects($db, $config);
     $ndaSigning = new NdaSigning($db, $config);
     $emailVerification = new VisitorEmailVerification($db, $config);
+    $investment = new Investment($db);
     $GLOBALS['gds_branding'] = Branding::get($db, $config);
-    return [$db, $projects, $ndaSigning, $emailVerification];
+    return [$db, $projects, $ndaSigning, $emailVerification, $investment];
   }
 
   public static function failBootstrap(Throwable $e, array $config): void {

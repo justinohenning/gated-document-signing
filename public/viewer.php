@@ -32,9 +32,10 @@ $viewerIp = Util::clientIp();
 
 // Determine what to view
 $isNda = isset($_GET['nda']);
+$isContract = isset($_GET['contract']);
 $fileId = isset($_GET['file_id']) ? (int)$_GET['file_id'] : 0;
 
-if (!$isNda && $fileId <= 0) {
+if (!$isNda && !$isContract && $fileId <= 0) {
   renderHeader('Viewer');
   echo '<div class="card"><div class="err"><strong>Missing file selection.</strong></div></div>';
   renderFooter();
@@ -56,7 +57,7 @@ if ($email === null) {
   }
 }
 
-$title = $isNda ? 'NDA' : 'Document';
+$title = $isNda ? 'NDA' : ($isContract ? 'Contract' : 'Document');
 $pdfUrl = '';
 $downloadUrl = '';
 $viewerKind = 'pdf';
@@ -74,6 +75,33 @@ if ($isNda) {
   $pdfUrl = 'download.php?' . http_build_query([
     'p' => $projectToken,
     'nda' => '1',
+  ]);
+  $downloadUrl = $pdfUrl;
+} elseif ($isContract) {
+  $invS = $investment->getSettings($projectId);
+  if (((int)($invS['enabled'] ?? 0)) !== 1) {
+    renderHeader('Viewer');
+    echo '<div class="card"><div class="err"><strong>Investment module is not enabled.</strong></div></div>';
+    renderFooter();
+    exit;
+  }
+  $ctr = $investment->getContract($projectId);
+  if (!$ctr) {
+    renderHeader('Viewer');
+    echo '<div class="card"><div class="err"><strong>Investment contract not configured.</strong></div></div>';
+    renderFooter();
+    exit;
+  }
+  if ($email === null || !$ndaSigning->hasSigned($projectId, $email)) {
+    renderHeader('Viewer');
+    echo '<div class="card"><div class="err"><strong>Not authorized.</strong> Please complete the NDA first.</div></div>';
+    renderFooter();
+    exit;
+  }
+  $title = (string)$ctr['original_name'];
+  $pdfUrl = 'download.php?' . http_build_query([
+    'p' => $projectToken,
+    'contract' => '1',
   ]);
   $downloadUrl = $pdfUrl;
 } else {

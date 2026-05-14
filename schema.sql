@@ -170,3 +170,63 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   CONSTRAINT fk_ae_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Investment module (per-project funding commitments + contract)
+CREATE TABLE IF NOT EXISTS investment_settings (
+  project_id INT UNSIGNED NOT NULL,
+  enabled TINYINT(1) NOT NULL DEFAULT 0,
+  goal_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+  goal_currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+  min_commitment DECIMAL(15,2) NULL DEFAULT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (project_id),
+  CONSTRAINT fk_inv_settings_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS investment_contracts (
+  project_id INT UNSIGNED NOT NULL,
+  original_name VARCHAR(255) NOT NULL,
+  stored_path TEXT NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (project_id),
+  CONSTRAINT fk_inv_contract_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS investment_contract_fields (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  project_id INT UNSIGNED NOT NULL,
+  field_key VARCHAR(32) NOT NULL,
+  field_label VARCHAR(64) NULL,
+  page_num INT UNSIGNED NOT NULL DEFAULT 1,
+  x DECIMAL(8,6) NOT NULL,
+  y DECIMAL(8,6) NOT NULL,
+  w DECIMAL(8,6) NOT NULL,
+  h DECIMAL(8,6) NOT NULL,
+  required TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_inv_fields_project (project_id),
+  CONSTRAINT fk_inv_fields_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS investment_commitments (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  project_id INT UNSIGNED NOT NULL,
+  signer_email VARCHAR(255) NOT NULL,
+  signer_name VARCHAR(255) NOT NULL DEFAULT '',
+  signer_position VARCHAR(255) NOT NULL DEFAULT '',
+  signer_address VARCHAR(512) NOT NULL DEFAULT '',
+  committed_amount DECIMAL(15,2) NOT NULL,
+  currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+  committed_at DATETIME NOT NULL,
+  ip_address VARCHAR(64) NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL,
+  signature_image_path TEXT NOT NULL,
+  signed_receipt_path TEXT NOT NULL,
+  signed_pdf_path TEXT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_inv_commit_project_email (project_id, signer_email),
+  KEY idx_inv_commit_project (project_id),
+  CONSTRAINT fk_inv_commit_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

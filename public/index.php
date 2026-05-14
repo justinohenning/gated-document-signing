@@ -357,6 +357,17 @@ if (isset($_GET['signout'])) {
 }
 
 if ($signed) {
+  $invSet = $investment->getSettings($projectId);
+  $invContractRow = $investment->getContract($projectId);
+  $invFieldCount = count($investment->listContractFieldDefs($projectId));
+  $invReady = ((int)($invSet['enabled'] ?? 0)) === 1 && $invContractRow !== null && $invFieldCount > 0;
+  $invPost = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action'])
+    && str_starts_with((string)$_POST['action'], 'inv_');
+  if ($invReady && ($invPost || isset($_GET['invest']))) {
+    require __DIR__ . '/investment-sign-flow.php';
+    exit;
+  }
+
   renderHeader('Files');
   renderAnalyticsTracker($projectToken, 'files', $email);
   $pn = Util::h((string)$project['name']);
@@ -369,6 +380,52 @@ if ($signed) {
   echo '<div class="gds-section-title" style="margin:0">Your files</div>';
   echo '<div><a href="' . Util::h($signedHref) . '" target="gds_download_frame" rel="noopener" class="btn btn-secondary gds-btn--compact">Download signed NDA</a></div>';
   echo '</div>';
+
+  if (((int)($invSet['enabled'] ?? 0)) === 1) {
+    if (!$invReady) {
+      echo '<div class="muted gds-flash" style="margin-top:var(--gds-space-3)">Investment module is on. Ask your administrator to upload the investment contract PDF and place fields so visitors can pledge here.</div>';
+    } else {
+      $totalCommitted = $investment->getTotalCommitted($projectId);
+      $goalAmt = (float)($invSet['goal_amount'] ?? 0);
+      $goalCur = (string)($invSet['goal_currency'] ?? 'USD');
+      $pct = ($goalAmt > 0) ? min(100.0, ($totalCommitted / $goalAmt) * 100.0) : 0.0;
+      $myCommit = $investment->getCommitment($projectId, $email);
+      $bq = ['p' => $projectToken, 'invest' => '1'];
+      if ($accessToken !== '') {
+        $bq['t'] = $accessToken;
+      }
+      $investHref = 'index.php?' . http_build_query($bq);
+      echo '<div class="gds-investment-card" style="margin-top:var(--gds-space-4);padding-top:var(--gds-space-4);border-top:1px solid var(--gds-border)">';
+      echo '<div class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Funding progress</div>';
+      echo '<p class="gds-lead" style="margin-top:0"><strong>' . Util::h($goalCur . ' ' . number_format($totalCommitted, 0)) . '</strong> committed';
+      if ($goalAmt > 0) {
+        echo ' of <strong>' . Util::h($goalCur . ' ' . number_format($goalAmt, 0)) . '</strong> goal';
+      }
+      echo '</p>';
+      if ($goalAmt > 0) {
+        echo '<div class="gds-investment-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' . (int)round($pct) . '">';
+        echo '<div class="gds-investment-bar__fill" style="width:' . Util::h((string)min(100, round($pct, 2))) . '%"></div></div>';
+      }
+      if ($myCommit) {
+        $cam = (float)($myCommit['committed_amount'] ?? 0);
+        $ccur = (string)($myCommit['currency'] ?? $goalCur);
+        echo '<p class="gds-lead" style="margin-top:var(--gds-space-3)">Your commitment: <strong>' . Util::h($ccur . ' ' . number_format($cam, 2)) . '</strong></p>';
+        echo '<div class="gds-actions" style="flex-wrap:wrap">';
+        echo '<a class="btn btn-primary gds-btn--compact" href="' . Util::h($investHref) . '">Update commitment</a>';
+        $scHref = 'download.php?p=' . urlencode($projectToken) . '&signed_contract=1' . ($accessToken !== '' ? '&t=' . urlencode($accessToken) : '');
+        if (!empty($myCommit['signed_pdf_path']) && is_file((string)$myCommit['signed_pdf_path'])) {
+          echo '<a class="btn btn-secondary gds-btn--compact" href="' . Util::h($scHref) . '" target="gds_download_frame" rel="noopener">Download signed contract</a>';
+        }
+        echo '</div>';
+      } else {
+        echo '<div class="gds-actions" style="margin-top:var(--gds-space-3)">';
+        echo '<a class="btn btn-primary" href="' . Util::h($investHref) . '">Commit to this project</a>';
+        echo '</div>';
+      }
+      echo '</div>';
+    }
+  }
+
   $files = $projects->listFiles($projectId);
 
   if (!function_exists('gdsFileTypeIcon')) {

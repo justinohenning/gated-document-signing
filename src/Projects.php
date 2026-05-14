@@ -177,12 +177,13 @@ final class Projects {
     $base = rtrim($this->config['storage_dir'], '/');
     $proj = $base . '/projects/' . $projectId;
     $ndaDir = $proj . '/nda';
+    $contractDir = $proj . '/contract';
     $filesDir = $proj . '/files';
     $signedDir = $proj . '/signed';
     $sigDir = $proj . '/signatures';
     $wmDir = $proj . '/watermark';
 
-    foreach ([$base, $base . '/projects', $proj, $ndaDir, $filesDir, $signedDir, $sigDir, $wmDir] as $d) {
+    foreach ([$base, $base . '/projects', $proj, $ndaDir, $contractDir, $filesDir, $signedDir, $sigDir, $wmDir] as $d) {
       if (!is_dir($d)) {
         mkdir($d, 0770, true);
       }
@@ -191,6 +192,7 @@ final class Projects {
     return [
       'project' => $proj,
       'nda' => $ndaDir,
+      'contract' => $contractDir,
       'files' => $filesDir,
       'signed' => $signedDir,
       'signatures' => $sigDir,

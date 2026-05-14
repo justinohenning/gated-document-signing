@@ -1877,3 +1877,36 @@ tr:hover .gds-file-rename-btn,
   background: var(--gds-surface, #fff);
   color: var(--gds-text, #1d1d1f);
 }
+
+/* ── Investment module (visitor files page) ─────────────────────────────── */
+.gds-investment-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--gds-border, #e5e7eb);
+  overflow: hidden;
+  max-width: 28rem;
+}
+.gds-investment-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb, #4f7cff);
+  transition: width 0.35s ease;
+}
+
+/* ── Admin visitor profiles ─────────────────────────────────────────────── */
+.gds-visitor-profile {
+  text-align: left;
+}
+.gds-visitor-profile__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--gds-space-3, 12px);
+  flex-wrap: wrap;
+}
+.gds-visitor-profile__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--gds-space-3, 12px);
+  margin-top: var(--gds-space-3, 12px);
+}

@@ -16,11 +16,12 @@ require_once dirname(__DIR__, 2) . '/src/Util.php';
 require_once dirname(__DIR__, 2) . '/src/Auth.php';
 require_once dirname(__DIR__, 2) . '/src/Projects.php';
 require_once dirname(__DIR__, 2) . '/src/NdaSigning.php';
+require_once dirname(__DIR__, 2) . '/src/Investment.php';
 require_once dirname(__DIR__, 2) . '/src/Branding.php';
 require_once dirname(__DIR__, 2) . '/src/Startup.php';
 
 try {
-  [$db, $projects, $ndaSigning, $emailVerification] = Startup::connect($config);
+  [$db, $projects, $ndaSigning, $emailVerification, $investment] = Startup::connect($config);
 } catch (Throwable $e) {
   Startup::failBootstrap($e, $config);
 }
