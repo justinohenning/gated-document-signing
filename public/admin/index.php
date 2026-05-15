@@ -270,24 +270,58 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_GET['api']) && $
 // Rebuild thumbnails: force-regenerate every PDF page (and XLSX preview PDF) cached
 // JPEG used by the analytics hover tooltip. POST { project_id } returns JSON summary.
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'rebuild_thumbnails') {
-  require_once dirname(__DIR__, 2) . '/src/Thumbnails.php';
+  // Buffer everything so any stray notice/warning from a downstream call cannot
+  // corrupt the JSON response. Captured output is returned in the error body when
+  // we have to bail, so the admin can see exactly what the server emitted.
+  ob_start();
   header('Content-Type: application/json; charset=utf-8');
+  @set_time_limit(0);
+  @ini_set('memory_limit', '512M');
+  ignore_user_abort(true);
+
+  $emit = static function (int $status, array $payload, string $strayOutput = ''): void {
+    if (ob_get_level() > 0) {
+      @ob_end_clean();
+    }
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    if ($strayOutput !== '') {
+      $payload['stray_output'] = mb_substr($strayOutput, 0, 4000);
+    }
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+  };
+
+  $thumbsPath = dirname(__DIR__, 2) . '/src/Thumbnails.php';
+  if (!is_file($thumbsPath)) {
+    $emit(500, ['ok' => false, 'error' => 'Thumbnails helper missing at ' . $thumbsPath]);
+  }
+  require_once $thumbsPath;
+
   $pid = (int)($_POST['project_id'] ?? 0);
   if ($pid <= 0) {
-    http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => 'Missing project_id'], JSON_UNESCAPED_SLASHES);
-    exit;
+    $emit(400, ['ok' => false, 'error' => 'Missing project_id']);
   }
-  @set_time_limit(0);
-  ignore_user_abort(true);
   try {
     $summary = Thumbnails::regenerateForProject($config, $projects, $investment, $pid, true);
-    echo json_encode(['ok' => true, 'summary' => $summary], JSON_UNESCAPED_SLASHES);
+    $stray = ob_get_contents();
+    @ob_end_clean();
+    header('Content-Type: application/json; charset=utf-8');
+    $resp = ['ok' => true, 'summary' => $summary];
+    if (is_string($stray) && trim($stray) !== '') {
+      $resp['stray_output'] = mb_substr($stray, 0, 4000);
+    }
+    echo json_encode($resp, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
   } catch (\Throwable $e) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_SLASHES);
+    $stray = ob_get_contents();
+    @ob_end_clean();
+    $emit(500, [
+      'ok' => false,
+      'error' => $e->getMessage(),
+      'where' => $e->getFile() . ':' . $e->getLine(),
+    ], (string)$stray);
   }
-  exit;
 }
 
 // Upload NDA
@@ -2931,9 +2965,20 @@ HTML;
         fd.append("action", "rebuild_thumbnails");
         fd.append("project_id", projectId);
         const r = await fetch("index.php", { method: "POST", body: fd, credentials: "same-origin" });
-        const data = await r.json().catch(() => ({ ok: false, error: "Bad response" }));
+        const raw = await r.text();
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) { data = null; }
+        if (!data) {
+          const snippet = String(raw || "").trim().slice(0, 600);
+          throw new Error("HTTP " + r.status + " — server returned non-JSON: " + (snippet || "(empty body)"));
+        }
         if (!r.ok || !data.ok) {
-          throw new Error(data.error || ("HTTP " + r.status));
+          const where = data.where ? (" at " + data.where) : "";
+          const stray = data.stray_output ? (" — also wrote: " + String(data.stray_output).slice(0, 300)) : "";
+          throw new Error((data.error || ("HTTP " + r.status)) + where + stray);
+        }
+        if (data.stray_output) {
+          console.warn("rebuild_thumbnails stray output:", data.stray_output);
         }
         const s = data.summary || { files: [], total_pages: 0, total_built: 0, total_failed: 0, backends_available: [] };
         const escMap = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" };

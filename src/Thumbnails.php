@@ -344,28 +344,53 @@ final class Thumbnails {
   }
 
   /**
-   * Best-effort PHP-only PDF page counter. Counts occurrences of "/Type /Page"
-   * (not "/Pages") and parses common encrypted/object-stream layouts. Returns 1
-   * as a floor so a single-page thumbnail attempt is still made.
+   * Best-effort PHP-only PDF page counter. Streams the file in chunks so it
+   * does not load gigabyte-class PDFs into memory. Counts occurrences of
+   * "/Type /Page" (not "/Pages"). Returns 1 as a floor so a single-page
+   * thumbnail attempt is still made.
    */
   public static function pdfPageCount(string $pdfPath): int {
     $sz = @filesize($pdfPath) ?: 0;
     if ($sz <= 0) {
       return 1;
     }
-    $buf = @file_get_contents($pdfPath);
-    if (!is_string($buf) || $buf === '') {
+    $fh = @fopen($pdfPath, 'rb');
+    if (!$fh) {
       return 1;
     }
-    $count = preg_match_all('@/Type\s*/Page(?![s/])@', $buf, $m);
-    if ($count >= 1) {
+    $count = 0;
+    $countFromXref = 0;
+    $overlap = '';
+    $chunkSize = 1024 * 512; // 512 KiB
+    try {
+      while (!feof($fh)) {
+        $buf = @fread($fh, $chunkSize);
+        if ($buf === false || $buf === '') {
+          break;
+        }
+        $window = $overlap . $buf;
+        if (preg_match_all('@/Type\s*/Page(?![s/])@', $window, $m) > 0) {
+          $count += count($m[0]);
+        }
+        if (preg_match_all('@/Count\s+(\d+)@', $window, $mc) > 0) {
+          foreach ($mc[1] as $cn) {
+            $cn = (int)$cn;
+            if ($cn > $countFromXref) {
+              $countFromXref = $cn;
+            }
+          }
+        }
+        // Keep a small overlap so a pattern split across the chunk boundary still matches.
+        $overlap = substr($window, -32);
+      }
+    } finally {
+      fclose($fh);
+    }
+    if ($count > 0) {
       return $count;
     }
-    if (preg_match('@/Count\s+(\d+)@', $buf, $cm)) {
-      $n = (int)$cm[1];
-      if ($n > 0) {
-        return $n;
-      }
+    if ($countFromXref > 0) {
+      return $countFromXref;
     }
     return 1;
   }
