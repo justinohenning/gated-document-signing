@@ -1916,8 +1916,17 @@ if ($view === 'analytics_user') {
     var subEl = tip.querySelector('.gds-tip__sub');
     var thumbEl = tip.querySelector('.gds-tip__thumb');
     var pdfThumbCache = new Map(); // key -> dataURL
-    var pdfBytesCache = new Map(); // doc key -> ArrayBuffer
+    var pdfBytesCache = new Map(); // doc key -> Promise<ArrayBuffer>
     var hovering = null;
+    var renderToken = 0; // increments on every hover; in-flight renders compare against current
+
+    var IMAGE_EXTS = ['png','jpg','jpeg','jfif','pjpeg','gif','webp','bmp','svg','ico','avif','heic','heif','tif','tiff'];
+    var SHEET_EXTS = ['xlsx','xlsm','xlsb','xls','ods','csv','tsv'];
+    var DOC_EXTS = ['doc','docx','odt','rtf','pages','txt','md'];
+    var SLIDE_EXTS = ['ppt','pptx','odp','key'];
+    var VIDEO_EXTS = ['mp4','m4v','webm','ogv','mov','avi','mkv','wmv','flv'];
+    var AUDIO_EXTS = ['mp3','m4a','aac','wav','ogg','flac','oga','opus','wma'];
+    var ARCHIVE_EXTS = ['zip','rar','7z','tar','gz','bz2','xz'];
 
     function showTip(x, y) {
       tip.hidden = false;
@@ -1936,6 +1945,69 @@ if ($view === 'analytics_user') {
       return window.__gdsMediaBase + '&' + new URLSearchParams(params).toString();
     }
 
+    function extFromLabel(label) {
+      var s = String(label || '').trim().toLowerCase();
+      if (!s) return '';
+      var m = s.match(/\.([a-z0-9]{1,8})(?:[?#].*)?$/);
+      return m ? m[1] : '';
+    }
+
+    function inferKindFromExt(ext) {
+      if (!ext) return '';
+      if (ext === 'pdf') return 'pdf';
+      if (IMAGE_EXTS.indexOf(ext) !== -1) return 'image';
+      if (SHEET_EXTS.indexOf(ext) !== -1) return 'sheet';
+      if (DOC_EXTS.indexOf(ext) !== -1) return 'doc';
+      if (SLIDE_EXTS.indexOf(ext) !== -1) return 'slide';
+      if (VIDEO_EXTS.indexOf(ext) !== -1) return 'video';
+      if (AUDIO_EXTS.indexOf(ext) !== -1) return 'audio';
+      if (ARCHIVE_EXTS.indexOf(ext) !== -1) return 'archive';
+      return '';
+    }
+
+    function svgIconFor(kind, ext) {
+      var svgWrap = function (inner) {
+        return '<svg viewBox="0 0 48 48" width="64" height="64" xmlns="http://www.w3.org/2000/svg" fill="none">'
+          + '<rect width="48" height="48" rx="10" fill="currentColor" opacity=".10"/>' + inner + '</svg>';
+      };
+      var label = (ext || '').toUpperCase().slice(0, 4);
+      var labelText = label
+        ? '<text x="24" y="32" text-anchor="middle" font-family="-apple-system,Segoe UI,Roboto,sans-serif" font-size="9" font-weight="700" fill="currentColor" opacity=".75">' + label + '</text>'
+        : '';
+      var paper = '<path d="M14 8h16l8 8v22a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2" opacity=".55"/>'
+        + '<path d="M30 8v8h8" stroke="currentColor" stroke-width="2" opacity=".55"/>';
+      switch (kind) {
+        case 'video':
+          return svgWrap('<polygon points="18,14 38,24 18,34" fill="currentColor" opacity=".6"/>');
+        case 'audio':
+          return svgWrap('<path d="M16 30V18l20-4v16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity=".65"/>'
+            + '<circle cx="12" cy="30" r="4" stroke="currentColor" stroke-width="2.5" opacity=".65"/>'
+            + '<circle cx="32" cy="26" r="4" stroke="currentColor" stroke-width="2.5" opacity=".65"/>');
+        case 'image':
+          return svgWrap('<rect x="9" y="11" width="30" height="26" rx="2" stroke="currentColor" stroke-width="2" opacity=".55"/>'
+            + '<circle cx="17" cy="20" r="2.5" fill="currentColor" opacity=".55"/>'
+            + '<path d="M11 33l8-8 6 6 4-4 8 8" stroke="currentColor" stroke-width="2" stroke-linejoin="round" opacity=".55"/>');
+        case 'sheet':
+          return svgWrap(paper
+            + '<rect x="15" y="22" width="20" height="14" rx="1" stroke="currentColor" stroke-width="1.5" opacity=".55"/>'
+            + '<path d="M15 27h20M15 31h20M22 22v14M28 22v14" stroke="currentColor" stroke-width="1.2" opacity=".55"/>');
+        case 'doc':
+          return svgWrap(paper
+            + '<path d="M17 23h14M17 27h14M17 31h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".55"/>');
+        case 'slide':
+          return svgWrap('<rect x="9" y="13" width="30" height="20" rx="2" stroke="currentColor" stroke-width="2" opacity=".55"/>'
+            + '<path d="M14 18h20M14 22h14M14 26h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".55"/>'
+            + '<path d="M24 33v4M19 39h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".55"/>');
+        case 'archive':
+          return svgWrap('<rect x="12" y="10" width="24" height="30" rx="2" stroke="currentColor" stroke-width="2" opacity=".55"/>'
+            + '<path d="M22 12h4M22 16h4M22 20h4M22 24h4M22 28h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".55"/>');
+        case 'pdf':
+          return svgWrap(paper + labelText);
+        default:
+          return svgWrap(paper + labelText);
+      }
+    }
+
     async function ensurePdfWorker() {
       if (typeof pdfjsLib === 'undefined') return false;
       try {
@@ -1944,20 +2016,23 @@ if ($view === 'analytics_user') {
       return true;
     }
 
-    async function fetchPdfBytes(docKind, fileId) {
-      var k = docKind + ':' + String(fileId || '');
+    function fetchPdfBytes(docKind, fileId) {
+      var k = (docKind === 'nda' ? 'nda' : 'file') + ':' + String(fileId || '');
       if (pdfBytesCache.has(k)) return pdfBytesCache.get(k);
       var url = mediaUrl({ doc_kind: docKind === 'nda' ? 'nda' : 'file', file_id: fileId || '', mode: 'pdf' });
-      var ab = await fetch(url, { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      var p = fetch(url, { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.arrayBuffer();
+      }).catch(function (err) {
+        pdfBytesCache.delete(k);
+        throw err;
       });
-      pdfBytesCache.set(k, ab);
-      return ab;
+      pdfBytesCache.set(k, p);
+      return p;
     }
 
     async function renderPdfThumb(docKind, fileId, pageNum) {
-      var key = docKind + ':' + String(fileId || '') + ':p' + String(pageNum || 1);
+      var key = (docKind === 'nda' ? 'nda' : 'file') + ':' + String(fileId || '') + ':p' + String(pageNum || 1);
       if (pdfThumbCache.has(key)) return pdfThumbCache.get(key);
       if (!(await ensurePdfWorker())) return null;
       var ab = await fetchPdfBytes(docKind, fileId);
@@ -1985,17 +2060,23 @@ if ($view === 'analytics_user') {
       thumbEl.innerHTML = '<div class="gds-tip__ph">Loading preview…</div>';
     }
 
-    function setThumbImage(src) {
-      thumbEl.innerHTML = '';
-      var img = document.createElement('img');
-      img.src = src;
-      img.alt = '';
-      img.decoding = 'async';
-      thumbEl.appendChild(img);
+    function setThumbIcon(kind, ext) {
+      thumbEl.innerHTML = '<div class="gds-tip__ph" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--color-muted)">'
+        + svgIconFor(kind, ext) + '</div>';
     }
 
-    function setThumbNone() {
-      thumbEl.innerHTML = '<div class="gds-tip__ph">No preview</div>';
+    function setThumbImage(token, src, fallbackKind, fallbackExt) {
+      if (token !== renderToken) return;
+      thumbEl.innerHTML = '';
+      var img = document.createElement('img');
+      img.alt = '';
+      img.decoding = 'async';
+      img.onerror = function () {
+        if (token !== renderToken) return;
+        setThumbIcon(fallbackKind || 'unknown', fallbackExt || '');
+      };
+      img.src = src;
+      thumbEl.appendChild(img);
     }
 
     document.addEventListener('mousemove', function (e) {
@@ -2004,7 +2085,7 @@ if ($view === 'analytics_user') {
     }, { passive: true });
 
     document.addEventListener('mouseout', function (e) {
-      var seg = e.target && e.target.closest ? e.target.closest('.gds-doc-seg') : null;
+      var seg = e.target && e.target.closest ? e.target.closest('.gds-doc-seg, .gds-session-seg') : null;
       if (seg) return;
       hideTip();
     });
@@ -2013,6 +2094,7 @@ if ($view === 'analytics_user') {
       var seg = e.target && e.target.closest ? e.target.closest('.gds-doc-seg, .gds-session-seg') : null;
       if (!seg) return;
       hovering = seg;
+      var token = ++renderToken;
       var isSessionSeg = seg.classList.contains('gds-session-seg');
       var docLabel = seg.getAttribute('data-doc-label') || 'Document';
       var label = seg.getAttribute('data-label') || '';
@@ -2029,6 +2111,15 @@ if ($view === 'analytics_user') {
       var sessMs = sessionCard ? (parseInt(sessionCard.getAttribute('data-session-ms') || '0', 10) || 0) : 0;
       var sessMin = sessMs ? (Math.round((sessMs / 60000) * 100) / 100) : 0;
 
+      var labelExt = extFromLabel(docLabel);
+      var inferred = inferKindFromExt(labelExt);
+      // Honor the recorded viewer_kind if present, otherwise infer from filename.
+      if (!vk && inferred) {
+        vk = inferred;
+      }
+      // For "unsupported" or unknown viewer_kind we still want a meaningful icon.
+      var iconKind = vk || inferred || 'unknown';
+
       if (titleEl) titleEl.textContent = isSessionSeg ? 'Session' : docLabel;
       if (subEl) {
         if (isSessionSeg) {
@@ -2043,45 +2134,46 @@ if ($view === 'analytics_user') {
         }
       }
       setThumbLoading();
+      showTip(e.clientX, e.clientY);
 
       try {
-        if (vk === 'video' || vk === 'audio') {
-          var icon = vk === 'video'
-            ? '<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" width="56" height="56"><rect width="48" height="48" rx="10" fill="currentColor" opacity=".1"/><polygon points="18,14 38,24 18,34" fill="currentColor" opacity=".6"/></svg>'
-            : '<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" width="56" height="56"><rect width="48" height="48" rx="10" fill="currentColor" opacity=".1"/><path d="M16 30V18l20-4v16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity=".6"/><circle cx="12" cy="30" r="4" stroke="currentColor" stroke-width="2.5" opacity=".6"/><circle cx="32" cy="26" r="4" stroke="currentColor" stroke-width="2.5" opacity=".6"/></svg>';
-          thumbEl.innerHTML = '<div class="gds-tip__ph" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--color-muted)">' + icon + '</div>';
+        if (vk === 'video' || iconKind === 'video') {
+          setThumbIcon('video', labelExt);
+        } else if (vk === 'audio' || iconKind === 'audio') {
+          setThumbIcon('audio', labelExt);
         } else if (vk === 'image') {
-          var imgUrl = mediaUrl({ doc_kind: 'file', file_id: String(fileId), mode: 'image' });
-          setThumbImage(imgUrl);
-        } else if (vk === 'sheet') {
-          // XLSX previews are rendered as PDF in the viewer; use page 1 thumbnail.
-          var kindS = (docKind === 'nda') ? 'nda' : 'file';
-          var fidS = (docKind === 'nda') ? '' : String(fileId);
-          setThumbImage(thumbUrlForPdf(kindS, fidS, 1));
-        } else if (vk === 'pdf') {
-          var p = isSessionSeg ? 1 : pageNum;
+          if (fileId > 0) {
+            setThumbImage(token, mediaUrl({ doc_kind: 'file', file_id: String(fileId), mode: 'image' }), 'image', labelExt);
+          } else {
+            setThumbIcon('image', labelExt);
+          }
+        } else if (vk === 'pdf' || vk === 'sheet') {
+          var p = (isSessionSeg || vk === 'sheet') ? 1 : pageNum;
           if (p <= 0) p = 1;
           var kind = (docKind === 'nda') ? 'nda' : 'file';
-          var fid = (docKind === 'nda') ? '' : String(fileId);
-          try {
-            var dataUrl = await renderPdfThumb(kind, fid, p);
+          var fid = (docKind === 'nda') ? '' : (fileId > 0 ? String(fileId) : '');
+          // NDA always has bytes via getNda(); project files need fileId.
+          if (kind === 'file' && !fid) {
+            setThumbIcon(vk === 'sheet' ? 'sheet' : 'pdf', labelExt);
+          } else {
+            var dataUrl = null;
+            try {
+              dataUrl = await renderPdfThumb(kind, fid, p);
+            } catch (e2) { dataUrl = null; }
+            if (token !== renderToken) return;
             if (dataUrl) {
-              setThumbImage(dataUrl);
+              setThumbImage(token, dataUrl, vk === 'sheet' ? 'sheet' : 'pdf', labelExt);
             } else {
-              setThumbImage(thumbUrlForPdf(kind, fid, p));
+              // Server-rendered JPEG thumbnail (Docker/poppler). Falls back to icon on error.
+              setThumbImage(token, thumbUrlForPdf(kind, fid, p), vk === 'sheet' ? 'sheet' : 'pdf', labelExt);
             }
-          } catch (e2) {
-            // Fallback to server-side cached JPEG thumbnail if PDF.js rendering fails.
-            setThumbImage(thumbUrlForPdf(kind, fid, p));
           }
         } else {
-          setThumbNone();
+          setThumbIcon(iconKind, labelExt);
         }
       } catch (err) {
-        setThumbNone();
+        if (token === renderToken) setThumbIcon(iconKind, labelExt);
       }
-
-      showTip(e.clientX, e.clientY);
     }, { passive: true });
   })();
   </script>
