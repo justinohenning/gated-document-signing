@@ -267,8 +267,101 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_GET['api']) && $
   exit;
 }
 
-// Rebuild thumbnails: force-regenerate every PDF page (and XLSX preview PDF) cached
-// JPEG used by the analytics hover tooltip. POST { project_id } returns JSON summary.
+// Rebuild thumbnails (chunked): plan + per-page render so each request stays well
+// under nginx fastcgi_read_timeout. The browser drives the loop.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'rebuild_thumbnails_plan') {
+  ob_start();
+  @set_time_limit(30);
+  $emit = static function (int $status, array $payload, string $stray = ''): void {
+    if (ob_get_level() > 0) {
+      @ob_end_clean();
+    }
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    if ($stray !== '') {
+      $payload['stray_output'] = mb_substr($stray, 0, 4000);
+    }
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+  };
+  $thumbsPath = dirname(__DIR__, 2) . '/src/Thumbnails.php';
+  if (!is_file($thumbsPath)) {
+    $emit(500, ['ok' => false, 'error' => 'Thumbnails helper missing']);
+  }
+  require_once $thumbsPath;
+  $pid = (int)($_POST['project_id'] ?? 0);
+  if ($pid <= 0) {
+    $emit(400, ['ok' => false, 'error' => 'Missing project_id']);
+  }
+  try {
+    $plan = Thumbnails::planForProject($projects, $investment, $config, $pid);
+    $stray = (string)ob_get_contents();
+    @ob_end_clean();
+    header('Content-Type: application/json; charset=utf-8');
+    $resp = ['ok' => true, 'plan' => $plan];
+    if (trim($stray) !== '') {
+      $resp['stray_output'] = mb_substr($stray, 0, 4000);
+    }
+    echo json_encode($resp, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+  } catch (\Throwable $e) {
+    $emit(500, [
+      'ok' => false,
+      'error' => $e->getMessage(),
+      'where' => $e->getFile() . ':' . $e->getLine(),
+    ], (string)ob_get_contents());
+  }
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'rebuild_thumbnails_chunk') {
+  ob_start();
+  @set_time_limit(45);
+  @ini_set('memory_limit', '512M');
+  $emit = static function (int $status, array $payload, string $stray = ''): void {
+    if (ob_get_level() > 0) {
+      @ob_end_clean();
+    }
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    if ($stray !== '') {
+      $payload['stray_output'] = mb_substr($stray, 0, 4000);
+    }
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+  };
+  $thumbsPath = dirname(__DIR__, 2) . '/src/Thumbnails.php';
+  if (!is_file($thumbsPath)) {
+    $emit(500, ['ok' => false, 'error' => 'Thumbnails helper missing']);
+  }
+  require_once $thumbsPath;
+  $pid = (int)($_POST['project_id'] ?? 0);
+  $kind = (string)($_POST['kind'] ?? '');
+  $id = (int)($_POST['id'] ?? 0);
+  $page = (int)($_POST['page'] ?? 0);
+  if ($pid <= 0 || $page <= 0 || !in_array($kind, ['nda', 'contract', 'file'], true)) {
+    $emit(400, ['ok' => false, 'error' => 'Invalid parameters']);
+  }
+  try {
+    $res = Thumbnails::renderOnePage($config, $projects, $investment, $pid, $kind, $id, $page, true);
+    $stray = (string)ob_get_contents();
+    @ob_end_clean();
+    header('Content-Type: application/json; charset=utf-8');
+    if (trim($stray) !== '') {
+      $res['stray_output'] = mb_substr($stray, 0, 4000);
+    }
+    echo json_encode($res, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+  } catch (\Throwable $e) {
+    $emit(500, [
+      'ok' => false,
+      'error' => $e->getMessage(),
+      'where' => $e->getFile() . ':' . $e->getLine(),
+    ], (string)ob_get_contents());
+  }
+}
+
+// Legacy single-shot rebuild (kept for CLI/admin scripts; will time out on large
+// projects under nginx). Browser flow uses the _plan + _chunk pair above.
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'rebuild_thumbnails') {
   // Buffer everything so any stray notice/warning from a downstream call cannot
   // corrupt the JSON response. Captured output is returned in the error body when
@@ -2950,6 +3043,29 @@ HTML;
   const rebuildStatus = document.getElementById("gdsRebuildThumbsStatus");
   const rebuildResult = document.getElementById("gdsRebuildThumbsResult");
   if (rebuildBtn) {
+    const escMap = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" };
+    const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, m => escMap[m]);
+    const postJson = async (action, extra, csrfToken) => {
+      const fd = new FormData();
+      fd.append("_csrf", csrfToken);
+      fd.append("action", action);
+      for (const [k, v] of Object.entries(extra)) fd.append(k, String(v));
+      const r = await fetch("index.php", { method: "POST", body: fd, credentials: "same-origin" });
+      const raw = await r.text();
+      let data = null;
+      try { data = JSON.parse(raw); } catch (e) { data = null; }
+      if (!data) {
+        const snippet = String(raw || "").trim().slice(0, 600);
+        throw new Error("HTTP " + r.status + " — server returned non-JSON: " + (snippet || "(empty body)"));
+      }
+      if (!r.ok || !data.ok) {
+        const where = data.where ? (" at " + data.where) : "";
+        const stray = data.stray_output ? (" — also wrote: " + String(data.stray_output).slice(0, 300)) : "";
+        throw new Error((data.error || ("HTTP " + r.status)) + where + stray);
+      }
+      return data;
+    };
+
     rebuildBtn.addEventListener("click", async () => {
       const projectId = rebuildBtn.getAttribute("data-project-id") || "";
       const csrfToken = rebuildBtn.getAttribute("data-csrf") || "";
@@ -2957,50 +3073,132 @@ HTML;
       rebuildBtn.disabled = true;
       const originalLabel = rebuildBtn.textContent;
       rebuildBtn.textContent = "Rebuilding…";
-      if (rebuildStatus) rebuildStatus.textContent = "This may take a minute for large projects.";
-      if (rebuildResult) { rebuildResult.style.display = "none"; rebuildResult.innerHTML = ""; }
+      if (rebuildResult) { rebuildResult.style.display = "block"; rebuildResult.innerHTML = ""; }
+
+      const setProgress = (pct, line) => {
+        if (!rebuildResult) return;
+        rebuildResult.innerHTML =
+          "<div style=\"margin-bottom:8px\"><div style=\"height:8px;border-radius:4px;background:rgba(0,0,0,0.08);overflow:hidden\">"
+          + "<div style=\"height:100%;width:" + Math.max(0, Math.min(100, pct)).toFixed(1) + "%;background:var(--gds-accent,#0066cc);transition:width .2s\"></div>"
+          + "</div></div>"
+          + "<div class=\"muted\" style=\"font-size:var(--gds-text-sm)\">" + esc(line || "") + "</div>";
+      };
+
       try {
-        const fd = new FormData();
-        fd.append("_csrf", csrfToken);
-        fd.append("action", "rebuild_thumbnails");
-        fd.append("project_id", projectId);
-        const r = await fetch("index.php", { method: "POST", body: fd, credentials: "same-origin" });
-        const raw = await r.text();
-        let data = null;
-        try { data = JSON.parse(raw); } catch (e) { data = null; }
-        if (!data) {
-          const snippet = String(raw || "").trim().slice(0, 600);
-          throw new Error("HTTP " + r.status + " — server returned non-JSON: " + (snippet || "(empty body)"));
+        if (rebuildStatus) rebuildStatus.textContent = "Planning…";
+        const planResp = await postJson("rebuild_thumbnails_plan", { project_id: projectId }, csrfToken);
+        const plan = planResp.plan || { docs: [], backends_available: [] };
+        const backends = Array.isArray(plan.backends_available) ? plan.backends_available : [];
+        if (rebuildStatus) rebuildStatus.textContent = "";
+        if (!backends.length) {
+          throw new Error("No PDF rendering backend detected on this server. Install one of: Imagick (PHP extension), poppler-utils (pdftoppm), ImageMagick (convert), Ghostscript (gs), or Docker.");
         }
-        if (!r.ok || !data.ok) {
-          const where = data.where ? (" at " + data.where) : "";
-          const stray = data.stray_output ? (" — also wrote: " + String(data.stray_output).slice(0, 300)) : "";
-          throw new Error((data.error || ("HTTP " + r.status)) + where + stray);
+
+        const docs = Array.isArray(plan.docs) ? plan.docs : [];
+        const tasks = [];
+        const fileResults = new Map();
+        for (const d of docs) {
+          const key = d.kind + ":" + (d.id || 0);
+          fileResults.set(key, {
+            kind: d.kind, id: d.id || 0, label: d.label || "",
+            pages: 0, built: 0, failed: 0, errors: [],
+            sourceError: d.error || (d.pages === -1 ? "" : (d.pages === 0 ? "Source file missing" : "")),
+            isSheet: d.pages === -1,
+          });
+          if (d.error || d.pages === 0) continue;
+          const totalPages = d.pages > 0 ? d.pages : 1;
+          fileResults.get(key).pages = d.pages > 0 ? d.pages : 0;
+          for (let p = 1; p <= totalPages; p++) {
+            tasks.push({ kind: d.kind, id: d.id || 0, page: p, key });
+          }
         }
-        if (data.stray_output) {
-          console.warn("rebuild_thumbnails stray output:", data.stray_output);
+
+        if (tasks.length === 0) {
+          const html = "<div class=\"ok gds-flash\" style=\"margin-bottom:8px\"><strong>No documents to rebuild.</strong></div>"
+            + "<p class=\"muted\" style=\"margin:0;font-size:var(--gds-text-sm)\">Using: " + esc(backends.join(", ")) + "</p>";
+          rebuildResult.innerHTML = html;
+          return;
         }
-        const s = data.summary || { files: [], total_pages: 0, total_built: 0, total_failed: 0, backends_available: [] };
-        const escMap = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" };
-        const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, m => escMap[m]);
-        let html = "";
-        const totalLine = "Built " + s.total_built + " of " + s.total_pages + " pages"
-          + (s.total_failed > 0 ? (" · " + s.total_failed + " failed") : "");
-        const allFailed = (s.total_pages > 0 && s.total_built === 0);
+
+        let done = 0;
+        let built = 0;
+        let failed = 0;
+        let sheetPagesUnknown = 0;
+        for (const task of tasks) {
+          setProgress(
+            (done / tasks.length) * 100,
+            "Rendering " + (fileResults.get(task.key).label || task.kind) + " · page " + task.page + " of " + (fileResults.get(task.key).pages || "?")
+              + " · " + (done + 1) + "/" + tasks.length
+          );
+          try {
+            const res = await postJson(
+              "rebuild_thumbnails_chunk",
+              { project_id: projectId, kind: task.kind, id: task.id, page: task.page },
+              csrfToken
+            );
+            const fr = fileResults.get(task.key);
+            if (res.ok) {
+              fr.built++;
+              built++;
+            } else {
+              fr.failed++;
+              failed++;
+              if (res.error && fr.errors.length < 3) fr.errors.push(res.error);
+            }
+          } catch (err) {
+            const fr = fileResults.get(task.key);
+            fr.failed++;
+            failed++;
+            if (fr.errors.length < 3) fr.errors.push(err.message || String(err));
+          }
+          done++;
+        }
+
+        // After processing every fixed page, try sheet docs (page 1) — XLSX→PDF
+        // conversion happens lazily on first chunk for a sheet.
+        const sheetDocs = Array.from(fileResults.values()).filter(f => f.isSheet);
+        for (const sd of sheetDocs) {
+          setProgress(100, "Converting spreadsheet: " + sd.label);
+          try {
+            const res = await postJson(
+              "rebuild_thumbnails_chunk",
+              { project_id: projectId, kind: sd.kind, id: sd.id, page: 1 },
+              csrfToken
+            );
+            if (res.ok) {
+              sd.built++;
+              sd.pages = sd.pages || 1;
+              built++;
+            } else {
+              sd.failed++;
+              sd.pages = sd.pages || 1;
+              failed++;
+              if (res.error && sd.errors.length < 3) sd.errors.push(res.error);
+            }
+          } catch (err) {
+            sd.failed++;
+            sd.pages = sd.pages || 1;
+            failed++;
+            if (sd.errors.length < 3) sd.errors.push(err.message || String(err));
+          }
+        }
+
+        const total = built + failed;
+        const totalLine = "Built " + built + " of " + total + " pages" + (failed > 0 ? (" · " + failed + " failed") : "");
+        const allFailed = (total > 0 && built === 0);
         const flashClass = allFailed ? "err" : "ok";
-        html += "<div class=\"" + flashClass + " gds-flash\" style=\"margin-bottom:8px\"><strong>" + esc(totalLine) + "</strong></div>";
-        const backends = Array.isArray(s.backends_available) ? s.backends_available : [];
-        const backendLabel = backends.length
-          ? ("Using: " + backends.join(", "))
-          : "No PDF rendering backend detected. Install one of: Imagick (PHP extension), poppler-utils (pdftoppm), ImageMagick (convert), Ghostscript (gs), or Docker.";
-        html += "<p class=\"muted\" style=\"margin:0 0 12px;font-size:var(--gds-text-sm)\">" + esc(backendLabel) + "</p>";
-        if (allFailed && backends.length) {
-          html += "<p class=\"muted\" style=\"margin:0 0 12px;font-size:var(--gds-text-sm)\">All pages failed despite a detected backend. Check the PHP error log for ImageMagick PDF policy errors or missing Ghostscript delegates.</p>";
+        let html = "<div class=\"" + flashClass + " gds-flash\" style=\"margin-bottom:8px\"><strong>" + esc(totalLine) + "</strong></div>";
+        html += "<p class=\"muted\" style=\"margin:0 0 12px;font-size:var(--gds-text-sm)\">Using: " + esc(backends.join(", ")) + "</p>";
+        if (allFailed) {
+          html += "<p class=\"muted\" style=\"margin:0 0 12px;font-size:var(--gds-text-sm)\">All pages failed. The detected backend likely needs configuration (e.g. ImageMagick PDF policy, missing Ghostscript delegate).</p>";
         }
-        if (Array.isArray(s.files) && s.files.length) {
+        const rows = Array.from(fileResults.values());
+        if (rows.length) {
           html += "<div class=\"gds-table-wrap\"><table style=\"width:100%;font-size:var(--gds-text-sm)\"><thead><tr><th>Document</th><th>Pages</th><th>Built</th><th>Failed</th><th></th></tr></thead><tbody>";
-          for (const f of s.files) {
-            const note = f.error ? ("<span class=\"muted\">" + esc(f.error) + "</span>") : "";
+          for (const f of rows) {
+            const note = f.sourceError
+              ? ("<span class=\"muted\">" + esc(f.sourceError) + "</span>")
+              : (f.errors.length ? ("<span class=\"muted\">" + esc(f.errors[0]) + "</span>") : "");
             const label = esc(f.label || "");
             const kind = (f.kind === "nda") ? "NDA" : (f.kind === "contract") ? "Contract" : "File";
             html += "<tr>"
@@ -3012,16 +3210,9 @@ HTML;
               + "</tr>";
           }
           html += "</tbody></table></div>";
-        } else {
-          html += "<p class=\"muted\">No PDF or spreadsheet documents to rebuild.</p>";
         }
-        if (rebuildResult) {
-          rebuildResult.innerHTML = html;
-          rebuildResult.style.display = "block";
-        }
-        if (rebuildStatus) rebuildStatus.textContent = "";
+        rebuildResult.innerHTML = html;
       } catch (err) {
-        if (rebuildStatus) rebuildStatus.textContent = "";
         if (rebuildResult) {
           const m = (err && err.message) ? err.message : String(err);
           const safe = String(m).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
@@ -3031,6 +3222,7 @@ HTML;
       } finally {
         rebuildBtn.disabled = false;
         rebuildBtn.textContent = originalLabel;
+        if (rebuildStatus) rebuildStatus.textContent = "";
       }
     });
   }

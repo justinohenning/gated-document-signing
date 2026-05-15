@@ -396,6 +396,151 @@ final class Thumbnails {
   }
 
   /**
+   * Build a plan listing every document that needs thumbnails and the page
+   * count for each, without rendering anything. Used by the chunked rebuild
+   * flow so each HTTP request stays well under nginx fastcgi_read_timeout.
+   *
+   * @return array{
+   *   docs: list<array{kind:string,id:int,label:string,pages:int,error?:string}>,
+   *   backends_available: list<string>
+   * }
+   */
+  public static function planForProject(
+    Projects $projects,
+    Investment $investment,
+    array $config,
+    int $projectId,
+    int $maxPagesPerDoc = 500,
+  ): array {
+    $docs = [];
+
+    $nda = $projects->getNda($projectId);
+    if ($nda) {
+      $path = (string)$nda['stored_path'];
+      $pages = is_file($path) ? min($maxPagesPerDoc, max(1, self::pdfPageCount($path))) : 0;
+      $row = ['kind' => 'nda', 'id' => 0, 'label' => (string)$nda['original_name'], 'pages' => $pages];
+      if ($pages === 0) {
+        $row['error'] = 'Source file missing';
+      }
+      $docs[] = $row;
+    }
+
+    $contract = $investment->getContract($projectId);
+    if ($contract) {
+      $path = (string)$contract['stored_path'];
+      $pages = is_file($path) ? min($maxPagesPerDoc, max(1, self::pdfPageCount($path))) : 0;
+      $row = ['kind' => 'contract', 'id' => 0, 'label' => (string)$contract['original_name'], 'pages' => $pages];
+      if ($pages === 0) {
+        $row['error'] = 'Source file missing';
+      }
+      $docs[] = $row;
+    }
+
+    $files = $projects->listFiles($projectId);
+    foreach ($files as $f) {
+      $fid = (int)$f['id'];
+      $orig = (string)$f['original_name'];
+      $stored = (string)$f['stored_path'];
+      $profile = Util::projectFilePreviewProfile($orig);
+      if ($profile === null) {
+        continue;
+      }
+      $kind = (string)$profile['kind'];
+      if ($kind === 'pdf') {
+        $pages = is_file($stored) ? min($maxPagesPerDoc, max(1, self::pdfPageCount($stored))) : 0;
+        $row = ['kind' => 'file', 'id' => $fid, 'label' => $orig, 'pages' => $pages];
+        if ($pages === 0) {
+          $row['error'] = 'Source file missing';
+        }
+        $docs[] = $row;
+      } elseif ($kind === 'sheet') {
+        // We don't trigger XLSX→PDF conversion in the plan phase to keep it fast.
+        // The first chunk render for this file will trigger conversion (and may
+        // legitimately time out on very large sheets; that's OK — the chunked
+        // loop will mark just that file as failed without poisoning the rest).
+        $docs[] = ['kind' => 'file', 'id' => $fid, 'label' => $orig, 'pages' => -1];
+      }
+    }
+
+    return [
+      'docs' => $docs,
+      'backends_available' => self::detectBackends(),
+    ];
+  }
+
+  /**
+   * Render a single page of a single document. Designed to be called by the
+   * client in a loop so each request is short.
+   *
+   * @return array{ok:bool, error?:string}
+   */
+  public static function renderOnePage(
+    array $config,
+    Projects $projects,
+    Investment $investment,
+    int $projectId,
+    string $kind,
+    int $id,
+    int $page,
+    bool $force = true,
+  ): array {
+    $pdfPath = null;
+    $thumbKey = '';
+    if ($kind === 'nda') {
+      $nda = $projects->getNda($projectId);
+      if (!$nda) {
+        return ['ok' => false, 'error' => 'NDA not found'];
+      }
+      $pdfPath = (string)$nda['stored_path'];
+      $thumbKey = 'nda';
+    } elseif ($kind === 'contract') {
+      $ctr = $investment->getContract($projectId);
+      if (!$ctr) {
+        return ['ok' => false, 'error' => 'Contract not found'];
+      }
+      $pdfPath = (string)$ctr['stored_path'];
+      $thumbKey = 'contract';
+    } elseif ($kind === 'file') {
+      $row = $projects->getFile($id);
+      if (!$row || (int)$row['project_id'] !== $projectId) {
+        return ['ok' => false, 'error' => 'File not found'];
+      }
+      $orig = (string)$row['original_name'];
+      $stored = (string)$row['stored_path'];
+      $profile = Util::projectFilePreviewProfile($orig);
+      if ($profile === null) {
+        return ['ok' => false, 'error' => 'File type not supported'];
+      }
+      if ($profile['kind'] === 'pdf') {
+        $pdfPath = $stored;
+      } elseif ($profile['kind'] === 'sheet') {
+        $pdfPath = self::ensureXlsxPreviewPdf($config, $projects, $projectId, $id, $stored, $orig);
+        if ($pdfPath === null) {
+          return ['ok' => false, 'error' => 'Spreadsheet → PDF conversion unavailable on this server'];
+        }
+      } else {
+        return ['ok' => false, 'error' => 'File type does not produce thumbnails'];
+      }
+      $thumbKey = 'file_' . $id;
+    } else {
+      return ['ok' => false, 'error' => 'Unknown kind: ' . $kind];
+    }
+    if ($pdfPath === null || !is_file($pdfPath)) {
+      return ['ok' => false, 'error' => 'Source PDF missing on disk'];
+    }
+    $jpg = self::ensurePdfThumbJpeg($config, $projects, $projectId, $pdfPath, $thumbKey, $page, $force);
+    if ($jpg === null) {
+      return ['ok' => false, 'error' => 'Renderer produced no output for page ' . $page];
+    }
+    return ['ok' => true];
+  }
+
+  /**
+   * @deprecated Walks the entire project in one request. Kept for completeness
+   * and admin/CLI use, but the chunked client-driven flow is the preferred
+   * entry point (planForProject + renderOnePage). May exceed nginx's
+   * fastcgi_read_timeout on large projects.
+   *
    * Walk every NDA, investment contract, and project file in a project and (re)build
    * page-level JPEG thumbnails. Returns a summary suitable for JSON responses.
    *
