@@ -165,6 +165,39 @@ HTML;
     return @mail($toEmail, $encodedSubject, $body, implode("\r\n", $headers));
   }
 
+  /**
+   * Send arbitrary HTML/text mail (e.g. admin notifications). Uses same transport as magic-link mail.
+   */
+  public static function sendOutbound(
+    array $config,
+    string $toEmail,
+    string $subject,
+    string $textBody,
+    string $htmlBody,
+  ): bool {
+    $fromAddr = trim((string)($config['mail_from_address'] ?? ''));
+    if ($fromAddr === '' || !filter_var($fromAddr, FILTER_VALIDATE_EMAIL)) {
+      error_log('[gds] mail_from_address missing or invalid — cannot send notification');
+      return false;
+    }
+    if (!filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
+      return false;
+    }
+    $fromName = (string)($config['mail_from_name'] ?? 'Gated Document Signing');
+
+    $sgKey = trim((string)($config['sendgrid_api_key'] ?? ''));
+    if ($sgKey !== '') {
+      return self::sendViaSendGrid($sgKey, $toEmail, $fromAddr, $fromName, $subject, $textBody, $htmlBody);
+    }
+
+    $smtp = $config['smtp'] ?? null;
+    if (is_array($smtp) && trim((string)($smtp['host'] ?? '')) !== '') {
+      return self::sendViaSmtp($config, $toEmail, $fromAddr, $fromName, $subject, $textBody, $htmlBody);
+    }
+
+    return self::sendViaPhpMail($toEmail, $fromAddr, $fromName, $subject, $textBody, $htmlBody);
+  }
+
   private static function mimeEncodeName(string $name): string {
     return '=?UTF-8?B?' . base64_encode($name) . '?=';
   }

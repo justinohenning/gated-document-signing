@@ -8,7 +8,16 @@ declare(strict_types=1);
 final class Investment {
   public function __construct(private Database $db) {}
 
-  /** @return array{enabled:int,goal_amount:float,goal_currency:string,min_commitment:?float,project_id?:int} */
+  /**
+   * @return array{
+   *   enabled:int,
+   *   goal_amount:float,
+   *   goal_currency:string,
+   *   min_commitment:?float,
+   *   equity_offered_pct:?float,
+   *   project_id?:int
+   * }
+   */
   public function getSettings(int $projectId): array {
     $row = $this->db->fetchOne(
       'SELECT * FROM investment_settings WHERE project_id = :pid LIMIT 1',
@@ -21,16 +30,50 @@ final class Investment {
         'goal_amount' => 0.0,
         'goal_currency' => 'USD',
         'min_commitment' => null,
+        'equity_offered_pct' => null,
       ];
     }
     $min = $row['min_commitment'] ?? null;
+    $eq = $row['equity_offered_pct'] ?? null;
+    $eqf = null;
+    if ($eq !== null && $eq !== '' && is_numeric($eq)) {
+      $eqf = (float)$eq;
+      if (!is_finite($eqf) || $eqf <= 0) {
+        $eqf = null;
+      } else {
+        $eqf = min(100.0, $eqf);
+      }
+    }
     return [
       'project_id' => $projectId,
       'enabled' => (int)($row['enabled'] ?? 0),
       'goal_amount' => (float)($row['goal_amount'] ?? 0),
       'goal_currency' => (string)($row['goal_currency'] ?? 'USD'),
       'min_commitment' => $min !== null && $min !== '' ? (float)$min : null,
+      'equity_offered_pct' => $eqf,
     ];
+  }
+
+  /**
+   * Pro‑rata share of the company offered at full goal: (commitment ÷ goal) × equity_offered_pct.
+   * Capped at equity_offered_pct. Returns null when not configured or inputs are invalid.
+   */
+  public function impliedOwnershipPercent(float $committedAmount, array $settings): ?float {
+    $goal = max(0.0, (float)($settings['goal_amount'] ?? 0));
+    if ($goal <= 0 || !is_finite($committedAmount) || $committedAmount <= 0) {
+      return null;
+    }
+    $eq = $settings['equity_offered_pct'] ?? null;
+    if ($eq === null || $eq === '') {
+      return null;
+    }
+    $eqf = (float)$eq;
+    if (!is_finite($eqf) || $eqf <= 0) {
+      return null;
+    }
+    $eqf = min(100.0, max(0.0, $eqf));
+    $raw = ($committedAmount / $goal) * $eqf;
+    return min($eqf, max(0.0, $raw));
   }
 
   public function saveSettings(int $projectId, array $data): void {
@@ -45,14 +88,25 @@ final class Investment {
     if ($minRaw !== null && $minRaw !== '') {
       $min = max(0.0, (float)$minRaw);
     }
+    $eq = null;
+    if (array_key_exists('equity_offered_pct', $data)) {
+      $eqRaw = $data['equity_offered_pct'];
+      if ($eqRaw !== null && $eqRaw !== '') {
+        $ev = (float)$eqRaw;
+        if (is_finite($ev) && $ev > 0) {
+          $eq = min(100.0, max(0.0, $ev));
+        }
+      }
+    }
     $this->db->exec(
-      'INSERT INTO investment_settings (project_id, enabled, goal_amount, goal_currency, min_commitment, updated_at)
-       VALUES (:pid, :en, :ga, :gc, :min, UTC_TIMESTAMP())
+      'INSERT INTO investment_settings (project_id, enabled, goal_amount, goal_currency, min_commitment, equity_offered_pct, updated_at)
+       VALUES (:pid, :en, :ga, :gc, :min, :eq, UTC_TIMESTAMP())
        ON DUPLICATE KEY UPDATE
          enabled = VALUES(enabled),
          goal_amount = VALUES(goal_amount),
          goal_currency = VALUES(goal_currency),
          min_commitment = VALUES(min_commitment),
+         equity_offered_pct = VALUES(equity_offered_pct),
          updated_at = UTC_TIMESTAMP()',
       [
         ':pid' => $projectId,
@@ -60,6 +114,7 @@ final class Investment {
         ':ga' => $goal,
         ':gc' => $currency,
         ':min' => $min,
+        ':eq' => $eq,
       ],
     );
   }
@@ -130,6 +185,56 @@ final class Investment {
       [':pid' => $projectId],
     );
     return (float)($row['s'] ?? 0);
+  }
+
+  /**
+   * True when the funding goal is set and total commitments have reached or exceeded it.
+   */
+  public function isFundingClosed(int $projectId): bool {
+    $s = $this->getSettings($projectId);
+    if ((int)($s['enabled'] ?? 0) !== 1) {
+      return false;
+    }
+    $goal = (float)($s['goal_amount'] ?? 0);
+    if ($goal <= 0) {
+      return false;
+    }
+    $total = $this->getTotalCommitted($projectId);
+    return $total >= $goal;
+  }
+
+  /** @return list<array<string,mixed>> */
+  public function listWaitlist(int $projectId): array {
+    return $this->db->fetchAll(
+      'SELECT * FROM investment_waitlist WHERE project_id = :pid ORDER BY updated_at DESC, id DESC',
+      [':pid' => $projectId],
+    );
+  }
+
+  public function upsertWaitlistEntry(int $projectId, array $data): void {
+    $this->db->exec(
+      'INSERT INTO investment_waitlist (
+         project_id, full_name, email, phone, address, desired_amount, desired_currency, created_at, updated_at
+       ) VALUES (
+         :pid, :nm, :em, :ph, :addr, :damt, :dcur, UTC_TIMESTAMP(), UTC_TIMESTAMP()
+       )
+       ON DUPLICATE KEY UPDATE
+         full_name = VALUES(full_name),
+         phone = VALUES(phone),
+         address = VALUES(address),
+         desired_amount = VALUES(desired_amount),
+         desired_currency = VALUES(desired_currency),
+         updated_at = UTC_TIMESTAMP()',
+      [
+        ':pid' => $projectId,
+        ':nm' => (string)$data['full_name'],
+        ':em' => strtolower(trim((string)$data['email'])),
+        ':ph' => (string)$data['phone'],
+        ':addr' => (string)$data['address'],
+        ':damt' => (float)$data['desired_amount'],
+        ':dcur' => (string)($data['desired_currency'] ?? 'USD'),
+      ],
+    );
   }
 
   /** @return list<array<string,mixed>> */

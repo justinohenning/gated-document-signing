@@ -21,26 +21,71 @@ final class Branding {
         visitor_tagline VARCHAR(255) NOT NULL DEFAULT \'Secure project access\',
         admin_tagline VARCHAR(255) NOT NULL DEFAULT \'Administrator\',
         logo_path TEXT NULL,
+        funding_progress_color VARCHAR(16) NULL DEFAULT NULL,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
       [],
     );
     $db->exec(
-      'INSERT INTO app_branding (id, app_name, visitor_tagline, admin_tagline, logo_path, updated_at)
-       VALUES (1, \'Gated Document Signing\', \'Secure project access\', \'Administrator\', NULL, UTC_TIMESTAMP())
+      'INSERT INTO app_branding (id, app_name, visitor_tagline, admin_tagline, logo_path, funding_progress_color, updated_at)
+       VALUES (1, \'Gated Document Signing\', \'Secure project access\', \'Administrator\', NULL, NULL, UTC_TIMESTAMP())
        ON DUPLICATE KEY UPDATE id = id',
       [],
     );
+    self::ensureFundingProgressColorColumn($db);
+  }
+
+  private static function ensureFundingProgressColorColumn(Database $db): void {
+    $exists = $db->fetchOne(
+      'SELECT 1 AS o FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
+      [':t' => 'app_branding', ':c' => 'funding_progress_color'],
+    );
+    if ($exists !== null) {
+      return;
+    }
+    try {
+      $db->exec(
+        'ALTER TABLE app_branding ADD COLUMN funding_progress_color VARCHAR(16) NULL DEFAULT NULL AFTER logo_path',
+        [],
+      );
+    } catch (\Throwable $e) {
+      $msg = $e->getMessage();
+      if (!str_contains($msg, 'Duplicate') && !str_contains($msg, 'already exists')) {
+        throw $e;
+      }
+    }
   }
 
   /**
-   * @return array{app_name: string, visitor_tagline: string, admin_tagline: string, logo_path: ?string, logo_layout: string}
+   * Normalize and validate a hex color for CSS (e.g. #2563eb). Returns null if invalid or empty.
+   */
+  public static function sanitizeFundingProgressColor(string $raw): ?string {
+    $s = trim($raw);
+    if ($s === '') {
+      return null;
+    }
+    if (!str_starts_with($s, '#')) {
+      $s = '#' . $s;
+    }
+    if (!preg_match('/^#([0-9a-f]{3}|[0-9a-f]{6})$/i', $s, $m)) {
+      return null;
+    }
+    $h = strtolower($m[1]);
+    if (strlen($h) === 3) {
+      $h = $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
+    }
+    return '#' . $h;
+  }
+
+  /**
+   * @return array{app_name: string, visitor_tagline: string, admin_tagline: string, logo_path: ?string, logo_layout: string, funding_progress_color: ?string}
    */
   public static function get(Database $db, array $config): array {
     $defaults = self::defaults();
     try {
       $row = $db->fetchOne(
-        'SELECT app_name, visitor_tagline, admin_tagline, logo_path FROM app_branding WHERE id = :id LIMIT 1',
+        'SELECT app_name, visitor_tagline, admin_tagline, logo_path, funding_progress_color FROM app_branding WHERE id = :id LIMIT 1',
         [':id' => self::ROW_ID],
       );
       if (!$row) {
@@ -48,6 +93,8 @@ final class Branding {
       }
       $storage = (string)($config['storage_dir'] ?? '');
       $logoPath = self::normalizeLogoPath($storage, $row['logo_path'] ?? null);
+      $fcRaw = isset($row['funding_progress_color']) ? (string)$row['funding_progress_color'] : '';
+      $fundingColor = self::sanitizeFundingProgressColor($fcRaw);
       return [
         'app_name' => trim((string)($row['app_name'] ?? '')) !== ''
           ? (string)$row['app_name']
@@ -56,13 +103,14 @@ final class Branding {
         'admin_tagline' => (string)($row['admin_tagline'] ?? $defaults['admin_tagline']),
         'logo_path' => $logoPath,
         'logo_layout' => self::inferLogoLayout($logoPath),
+        'funding_progress_color' => $fundingColor,
       ];
     } catch (\Throwable $e) {
       return $defaults;
     }
   }
 
-  /** @param array{app_name?: string, visitor_tagline?: string, admin_tagline?: string} $fields */
+  /** @param array{app_name?: string, visitor_tagline?: string, admin_tagline?: string, funding_progress_color?: string} $fields */
   public static function saveText(Database $db, array $fields): void {
     $app = isset($fields['app_name']) ? trim((string)$fields['app_name']) : '';
     $vTag = isset($fields['visitor_tagline']) ? trim((string)$fields['visitor_tagline']) : '';
@@ -70,12 +118,15 @@ final class Branding {
     if ($app === '') {
       $app = self::defaults()['app_name'];
     }
+    $fundingHex = isset($fields['funding_progress_color'])
+      ? self::sanitizeFundingProgressColor((string)$fields['funding_progress_color'])
+      : null;
     $db->exec(
-      'INSERT INTO app_branding (id, app_name, visitor_tagline, admin_tagline, updated_at)
-       VALUES (1, :a, :v, :ad, UTC_TIMESTAMP())
+      'INSERT INTO app_branding (id, app_name, visitor_tagline, admin_tagline, funding_progress_color, updated_at)
+       VALUES (1, :a, :v, :ad, :fc, UTC_TIMESTAMP())
        ON DUPLICATE KEY UPDATE app_name = VALUES(app_name), visitor_tagline = VALUES(visitor_tagline),
-         admin_tagline = VALUES(admin_tagline), updated_at = UTC_TIMESTAMP()',
-      [':a' => $app, ':v' => $vTag, ':ad' => $aTag],
+         admin_tagline = VALUES(admin_tagline), funding_progress_color = VALUES(funding_progress_color), updated_at = UTC_TIMESTAMP()',
+      [':a' => $app, ':v' => $vTag, ':ad' => $aTag, ':fc' => $fundingHex],
     );
   }
 
@@ -275,7 +326,7 @@ final class Branding {
     return 'branding-logo.php';
   }
 
-  /** @return array{app_name: string, visitor_tagline: string, admin_tagline: string, logo_path: ?string, logo_layout: string} */
+  /** @return array{app_name: string, visitor_tagline: string, admin_tagline: string, logo_path: ?string, logo_layout: string, funding_progress_color: ?string} */
   private static function defaults(): array {
     return [
       'app_name' => 'Gated Document Signing',
@@ -283,6 +334,7 @@ final class Branding {
       'admin_tagline' => 'Administrator',
       'logo_path' => null,
       'logo_layout' => 'square',
+      'funding_progress_color' => null,
     ];
   }
 

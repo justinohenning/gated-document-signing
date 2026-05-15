@@ -15,11 +15,12 @@ CREATE TABLE IF NOT EXISTS app_branding (
   visitor_tagline VARCHAR(255) NOT NULL DEFAULT 'Secure project access',
   admin_tagline VARCHAR(255) NOT NULL DEFAULT 'Administrator',
   logo_path TEXT NULL,
+  funding_progress_color VARCHAR(16) NULL DEFAULT NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO app_branding (id, app_name, visitor_tagline, admin_tagline, logo_path, updated_at)
-VALUES (1, 'Gated Document Signing', 'Secure project access', 'Administrator', NULL, UTC_TIMESTAMP())
+INSERT INTO app_branding (id, app_name, visitor_tagline, admin_tagline, logo_path, funding_progress_color, updated_at)
+VALUES (1, 'Gated Document Signing', 'Secure project access', 'Administrator', NULL, NULL, UTC_TIMESTAMP())
 ON DUPLICATE KEY UPDATE id = id;
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -177,6 +178,7 @@ CREATE TABLE IF NOT EXISTS investment_settings (
   goal_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
   goal_currency VARCHAR(8) NOT NULL DEFAULT 'USD',
   min_commitment DECIMAL(15,2) NULL DEFAULT NULL,
+  equity_offered_pct DECIMAL(8,4) NULL DEFAULT NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (project_id),
   CONSTRAINT fk_inv_settings_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -228,5 +230,22 @@ CREATE TABLE IF NOT EXISTS investment_commitments (
   UNIQUE KEY uq_inv_commit_project_email (project_id, signer_email),
   KEY idx_inv_commit_project (project_id),
   CONSTRAINT fk_inv_commit_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS investment_waitlist (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  project_id INT UNSIGNED NOT NULL,
+  full_name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  phone VARCHAR(64) NOT NULL,
+  address VARCHAR(768) NOT NULL,
+  desired_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+  desired_currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_inv_waitlist_project_email (project_id, email),
+  KEY idx_inv_waitlist_project (project_id),
+  CONSTRAINT fk_inv_waitlist_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -12,3 +12,6 @@ CREATE TABLE IF NOT EXISTS app_branding (
 INSERT INTO app_branding (id, app_name, visitor_tagline, admin_tagline, logo_path, updated_at)
 VALUES (1, 'Gated Document Signing', 'Secure project access', 'Administrator', NULL, UTC_TIMESTAMP())
 ON DUPLICATE KEY UPDATE id = id;
+
+-- Optional: add funding bar color (safe to run if column already exists — will error once; ignore or use information_schema guard)
+-- ALTER TABLE app_branding ADD COLUMN funding_progress_color VARCHAR(16) NULL DEFAULT NULL AFTER logo_path;

@@ -21,6 +21,15 @@ if (((int)($invSettings['enabled'] ?? 0)) !== 1 || !$invContract || $invFieldDef
   exit;
 }
 
+if ($investment->isFundingClosed($projectId)) {
+  $q = ['p' => $projectToken, 'funding_closed' => '1'];
+  if ($accessToken !== '') {
+    $q['t'] = $accessToken;
+  }
+  header('Location: index.php?' . http_build_query($q));
+  exit;
+}
+
 $sigRec = $ndaSigning->getSignatureRecord($projectId, $email);
 $currency = (string)($invSettings['goal_currency'] ?? 'USD');
 $minCommit = $invSettings['min_commitment'];
@@ -54,6 +63,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']))
   }
 
   if ($act === 'inv_step1') {
+    if ($investment->isFundingClosed($projectId)) {
+      renderHeader('Commitment');
+      echo '<div class="card"><div class="err"><strong>This funding round is full.</strong> New commitments are closed.</div>';
+      $retryQ = ['p' => $projectToken];
+      if ($accessToken !== '') {
+        $retryQ['t'] = $accessToken;
+      }
+      echo '<p class="gds-lead"><a href="' . Util::h('index.php?' . http_build_query($retryQ)) . '">Back to files</a></p></div>';
+      renderFooter();
+      exit;
+    }
     $fn = trim((string)($_POST['signer_first_name'] ?? ''));
     $ln = trim((string)($_POST['signer_last_name'] ?? ''));
     $pos = trim((string)($_POST['signer_position'] ?? ''));
@@ -74,8 +94,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']))
     if ($pos === '') {
       $errs[] = 'Please enter your position or title.';
     }
-    if ($l1 === '' || $city === '' || $region === '' || $postal === '') {
-      $errs[] = 'Please complete address line 1, city, state/province, and postal code.';
+    if ($l1 === '' || $l2 === '' || $city === '' || $region === '' || $postal === '' || $country === '') {
+      $errs[] = 'Please complete all address fields (including line 2 and country).';
     }
     if ($addr === '') {
       $errs[] = 'Please complete your mailing address.';
@@ -136,6 +156,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']))
   }
 
   if ($act === 'inv_sign_contract') {
+    if ($investment->isFundingClosed($projectId)) {
+      renderHeader('Sign contract');
+      echo '<div class="card"><div class="err"><strong>This funding round is full.</strong> Your signature was not saved.</div>';
+      $bq = ['p' => $projectToken];
+      if ($accessToken !== '') {
+        $bq['t'] = $accessToken;
+      }
+      echo '<p class="gds-lead"><a href="' . Util::h('index.php?' . http_build_query($bq)) . '">Back to files</a></p></div>';
+      renderFooter();
+      exit;
+    }
     $draft = $_SESSION[$invDraftKey] ?? null;
     $stepNow = (int)($_SESSION[$invStepKey] ?? 1);
     $sig = (string)($_POST['signature_png'] ?? '');
@@ -201,8 +232,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']))
       . '<p><strong>Name:</strong> ' . Util::h($name) . '</p>'
       . '<p><strong>Position:</strong> ' . Util::h($pos) . '</p>'
       . '<p><strong>Address:</strong><br>' . nl2br(Util::h($addr), false) . '</p>'
-      . '<p><strong>Commitment:</strong> ' . Util::h($currency) . ' ' . Util::h(number_format($camt, 2)) . '</p>'
-      . '<p><strong>Signed at (UTC):</strong> ' . Util::h(gmdate('c')) . '</p>';
+      . '<p><strong>Commitment:</strong> ' . Util::h($currency) . ' ' . Util::h(number_format($camt, 2)) . '</p>';
+    $implRec = $investment->impliedOwnershipPercent($camt, $invSettings);
+    if ($implRec !== null) {
+      $receiptHtml .= '<p><strong>Implied ownership at full goal:</strong> ' . Util::h(number_format($implRec, 2)) . '%</p>';
+    }
+    $receiptHtml .= '<p><strong>Signed at (UTC):</strong> ' . Util::h(gmdate('c')) . '</p>';
     file_put_contents($receiptPath, $receiptHtml);
 
     $investment->recordCommitment([
@@ -276,29 +311,7 @@ if (!is_array($draft)) {
 }
 
 if (is_array($draft)) {
-  if (!isset($draft['first_name']) && isset($draft['name'])) {
-    [$f0, $l0] = Util::splitFullNameForForm((string)$draft['name']);
-    $draft['first_name'] = $f0;
-    $draft['last_name'] = $l0;
-  }
-  if (!isset($draft['addr_line1']) && isset($draft['address'])) {
-    $legacy = Util::splitLegacyAddressForForm((string)$draft['address']);
-    $draft['addr_line1'] = $legacy['line1'];
-    $draft['addr_line2'] = $legacy['line2'];
-    $draft['addr_city'] = $legacy['city'];
-    $draft['addr_region'] = $legacy['region'];
-    $draft['addr_postal'] = $legacy['postal'];
-    $draft['addr_country'] = $legacy['country'];
-  }
-  $draft['name'] = Util::mergeSignerName((string)($draft['first_name'] ?? ''), (string)($draft['last_name'] ?? ''));
-  $draft['address'] = Util::mergeSignerAddressParts(
-    (string)($draft['addr_line1'] ?? ''),
-    (string)($draft['addr_line2'] ?? ''),
-    (string)($draft['addr_city'] ?? ''),
-    (string)($draft['addr_region'] ?? ''),
-    (string)($draft['addr_postal'] ?? ''),
-    (string)($draft['addr_country'] ?? '')
-  );
+  $draft = Util::normalizeSignerDraft($draft);
   $_SESSION[$invDraftKey] = $draft;
 }
 
@@ -336,12 +349,19 @@ if ($step === 1) {
   $minHint = ($minCommit !== null && $minCommit > 0)
     ? '<p class="muted" style="font-size:.875em">Minimum: ' . Util::h($currency) . ' ' . Util::h(number_format((float)$minCommit, 2)) . '</p>'
     : '';
+  $goalAmtSet = (float)($invSettings['goal_amount'] ?? 0);
+  $eqAtGoal = $invSettings['equity_offered_pct'] ?? null;
+  $invFullGoalHint = '';
+  if ($goalAmtSet > 0 && $eqAtGoal !== null && (float)$eqAtGoal > 0) {
+    $invFullGoalHint = '<p class="muted" style="font-size:.875em;margin-top:var(--gds-space-2)">If this round reaches its funding goal, up to <strong>' . Util::h(number_format((float)$eqAtGoal, 2)) . '%</strong> of the company is part of the offer (goal: <strong>' . Util::h($currency . ' ' . number_format($goalAmtSet, 0)) . '</strong>). Your implied stake scales with your commitment.</p>';
+  }
+  $impStep1 = $investment->impliedOwnershipPercent((float)($draft['commitment_amount'] ?? 0), $invSettings);
   echo '<div class="card">';
   echo '<h2 class="gds-page-title">' . Util::h((string)$project['name']) . '</h2>';
   echo '<p class="gds-lead">Confirm your details and enter the amount you are committing to this opportunity.</p>';
   echo '<p class="gds-lead"><a href="' . Util::h($cancelHref) . '" class="muted">← Back to files</a></p>';
   echo '<div class="stepper"><span class="step active"><span class="num">1</span>Details</span><span class="step"><span class="num">2</span>Review</span><span class="step"><span class="num">3</span>Sign</span></div>';
-  echo '<form method="post" class="gds-inv-detail-form">';
+  echo '<form method="post" class="gds-sign-detail-form">';
   echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="inv_step1" />';
 
@@ -372,6 +392,10 @@ if ($step === 1) {
   echo '<div class="gds-field"><label class="gds-label" for="inv_amt">Commitment amount (' . Util::h($currency) . ')</label>';
   echo '<input id="inv_amt" name="commitment_amount" type="text" inputmode="decimal" required value="' . $dc . '" placeholder="50000" /></div>';
   echo $minHint;
+  echo $invFullGoalHint;
+  if ($impStep1 !== null) {
+    echo '<p class="gds-lead" style="margin-top:var(--gds-space-2);font-size:1rem">Implied ownership at full goal: <strong>' . Util::h(number_format($impStep1, 2)) . '%</strong></p>';
+  }
   echo '</div>';
 
   echo '<div class="gds-actions"><button type="submit" class="btn btn-primary">Continue</button></div>';
@@ -394,11 +418,20 @@ if ($step === 2) {
     'free_text' => (isset($draft['free_text']) && is_array($draft['free_text'])) ? $draft['free_text'] : [],
   ];
   $draftJson = json_encode($draftForJs, JSON_UNESCAPED_SLASHES) ?: '{}';
+  $impStep2 = $investment->impliedOwnershipPercent((float)($draft['commitment_amount'] ?? 0), $invSettings);
 
   echo '<div class="card">';
   echo '<h2 class="gds-page-title">' . Util::h((string)$project['name']) . '</h2>';
   echo '<p class="gds-lead"><a href="' . Util::h($cancelHref) . '" class="muted">← Back to files</a></p>';
   echo '<div class="stepper"><span class="step"><span class="num">1</span>Details</span><span class="step active"><span class="num">2</span>Review</span><span class="step"><span class="num">3</span>Sign</span></div>';
+  if ($impStep2 !== null) {
+    $dc2 = Util::h((string)($draft['currency'] ?? $currency));
+    $da2 = (float)($draft['commitment_amount'] ?? 0);
+    echo '<div class="ok gds-flash" style="margin:var(--gds-space-4) 0">';
+    echo '<strong>Commitment:</strong> ' . $dc2 . ' ' . Util::h(number_format($da2, 2));
+    echo ' &nbsp;·&nbsp; <strong>Implied ownership at full goal:</strong> ' . Util::h(number_format($impStep2, 2)) . '%';
+    echo '</div>';
+  }
   echo '<div class="gds-sign-toolbar">';
   echo '<form method="post" style="margin:0">' . Auth::csrfFieldHtml() . '<input type="hidden" name="action" value="inv_step_back" /><input type="hidden" name="step_to" value="1" /><button type="submit" class="btn btn-secondary">Back</button></form>';
   echo '<a href="' . Util::h($contractViewerHref) . '" class="muted" target="_blank" rel="noopener">Open full-screen contract</a>';
@@ -584,11 +617,18 @@ $dPos = Util::h((string)($draft['position'] ?? ''));
 $dAddr = Util::h((string)($draft['address'] ?? ''));
 $dAmt = Util::h((string)($draft['commitment_amount'] ?? ''));
 $dCur = Util::h((string)($draft['currency'] ?? $currency));
+$impStep3 = $investment->impliedOwnershipPercent((float)($draft['commitment_amount'] ?? 0), $invSettings);
 
 echo '<div class="card">';
 echo '<h2 class="gds-page-title">' . Util::h((string)$project['name']) . '</h2>';
 echo '<p class="gds-lead"><a href="' . Util::h($cancelHref) . '" class="muted">← Back to files</a></p>';
 echo '<div class="stepper"><span class="step"><span class="num">1</span>Details</span><span class="step"><span class="num">2</span>Review</span><span class="step active"><span class="num">3</span>Sign</span></div>';
+if ($impStep3 !== null) {
+  echo '<div class="ok gds-flash" style="margin:var(--gds-space-4) 0">';
+  echo '<strong>Commitment:</strong> ' . $dCur . ' ' . Util::h(number_format((float)($draft['commitment_amount'] ?? 0), 2));
+  echo ' &nbsp;·&nbsp; <strong>Implied ownership at full goal:</strong> ' . Util::h(number_format($impStep3, 2)) . '%';
+  echo '</div>';
+}
 echo '<div class="gds-sign-toolbar">';
 echo '<form method="post" style="margin:0">' . Auth::csrfFieldHtml() . '<input type="hidden" name="action" value="inv_step_back" /><input type="hidden" name="step_to" value="2" /><button type="submit" class="btn btn-secondary">Back</button></form>';
 echo '<a href="' . Util::h($contractViewerHref) . '" class="muted" target="_blank" rel="noopener">Open full-screen contract</a>';

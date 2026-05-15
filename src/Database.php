@@ -42,6 +42,7 @@ final class Database {
         visitor_tagline VARCHAR(255) NOT NULL DEFAULT \'Secure project access\',
         admin_tagline VARCHAR(255) NOT NULL DEFAULT \'Administrator\',
         logo_path TEXT NULL,
+        funding_progress_color VARCHAR(16) NULL DEFAULT NULL,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
     );
@@ -264,6 +265,7 @@ final class Database {
         goal_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
         goal_currency VARCHAR(8) NOT NULL DEFAULT \'USD\',
         min_commitment DECIMAL(15,2) NULL DEFAULT NULL,
+        equity_offered_pct DECIMAL(8,4) NULL DEFAULT NULL,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (project_id),
         CONSTRAINT fk_inv_settings_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -320,6 +322,85 @@ final class Database {
         CONSTRAINT fk_inv_commit_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
     );
+    $this->pdo->exec(
+      'CREATE TABLE IF NOT EXISTS investment_waitlist (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        project_id INT UNSIGNED NOT NULL,
+        full_name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        phone VARCHAR(64) NOT NULL,
+        address VARCHAR(768) NOT NULL,
+        desired_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+        desired_currency VARCHAR(8) NOT NULL DEFAULT \'USD\',
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_inv_waitlist_project_email (project_id, email),
+        KEY idx_inv_waitlist_project (project_id),
+        CONSTRAINT fk_inv_waitlist_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    );
+    $this->ensureInvestmentWaitlistAmountColumns();
+    $this->ensureInvestmentSettingsEquityColumn();
+  }
+
+  /** Add equity_offered_pct to investment_settings on older installs. */
+  public function ensureInvestmentSettingsEquityColumn(): void {
+    $exists = $this->fetchOne(
+      'SELECT 1 AS o FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
+      [':t' => 'investment_settings', ':c' => 'equity_offered_pct'],
+    );
+    if ($exists !== null) {
+      return;
+    }
+    try {
+      $this->pdo->exec(
+        'ALTER TABLE investment_settings ADD COLUMN equity_offered_pct DECIMAL(8,4) NULL DEFAULT NULL AFTER min_commitment',
+      );
+    } catch (\PDOException $e) {
+      $msg = $e->getMessage();
+      if (!str_contains($msg, 'Duplicate') && !str_contains($msg, 'already exists')) {
+        throw $e;
+      }
+    }
+  }
+
+  /** Add desired_amount / desired_currency to waitlist table on older installs. */
+  public function ensureInvestmentWaitlistAmountColumns(): void {
+    foreach (
+      [
+        ['desired_amount', 'ALTER TABLE investment_waitlist ADD COLUMN desired_amount DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER address'],
+        ['desired_currency', 'ALTER TABLE investment_waitlist ADD COLUMN desired_currency VARCHAR(8) NOT NULL DEFAULT \'USD\' AFTER desired_amount'],
+      ] as [$col, $sql]
+    ) {
+      $exists = $this->fetchOne(
+        'SELECT 1 AS o FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
+        [':t' => 'investment_waitlist', ':c' => $col],
+      );
+      if ($exists !== null) {
+        continue;
+      }
+      try {
+        $this->pdo->exec($sql);
+      } catch (\PDOException $e) {
+        $msg = $e->getMessage();
+        if (str_contains($msg, 'Duplicate') || str_contains($msg, 'already exists')) {
+          continue;
+        }
+        throw $e;
+      }
+    }
+  }
+
+  public function getFirstAdminEmail(): ?string {
+    $row = $this->fetchOne('SELECT email FROM admins ORDER BY id ASC LIMIT 1', []);
+    if (!$row || !isset($row['email'])) {
+      return null;
+    }
+    $em = trim((string)$row['email']);
+    return $em !== '' ? $em : null;
   }
 
   public function fetchOne(string $sql, array $params = []): ?array {

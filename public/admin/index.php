@@ -142,6 +142,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) 
     'app_name' => (string)($_POST['app_name'] ?? ''),
     'visitor_tagline' => (string)($_POST['visitor_tagline'] ?? ''),
     'admin_tagline' => (string)($_POST['admin_tagline'] ?? ''),
+    'funding_progress_color' => (string)($_POST['funding_progress_color'] ?? ''),
   ]);
   header('Location: index.php?view=branding&saved=1&toast=1');
   exit;
@@ -340,11 +341,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) 
     $goal = (float)str_replace([',', ' '], '', $goalRaw);
     $minRaw = trim((string)($_POST['min_commitment'] ?? ''));
     $min = $minRaw === '' ? null : (float)str_replace([',', ' '], '', $minRaw);
+    $eqRaw = trim((string)($_POST['equity_offered_pct'] ?? ''));
+    $eqOffer = $eqRaw === '' ? null : (float)str_replace([',', ' '], '', $eqRaw);
     $investment->saveSettings($pid, [
       'enabled' => isset($_POST['investment_enabled']) && (string)$_POST['investment_enabled'] === '1',
       'goal_amount' => $goal,
       'goal_currency' => (string)($_POST['goal_currency'] ?? 'USD'),
       'min_commitment' => $min,
+      'equity_offered_pct' => $eqOffer !== null && is_finite($eqOffer) ? $eqOffer : null,
     ]);
   }
   header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=settings&toast=1');
@@ -1102,6 +1106,14 @@ if ($view === 'branding') {
   echo '<div class="gds-field"><label class="gds-label" for="admin_tagline">Admin subtitle</label>';
   echo '<input id="admin_tagline" name="admin_tagline" type="text" value="' . Util::h((string)$b['admin_tagline']) . '" maxlength="255" />';
   echo '<span class="gds-help">Second line under the app name in this admin area.</span></div>';
+  $fpSaved = (string)($b['funding_progress_color'] ?? '');
+  $pickerDefault = preg_match('/^#([0-9a-f]{6})$/i', $fpSaved) ? $fpSaved : '#2563eb';
+  echo '<div class="gds-field"><label class="gds-label" for="funding_progress_color">Funding progress bar color</label>';
+  echo '<div class="row" style="align-items:center;flex-wrap:wrap;gap:var(--gds-space-3);margin-bottom:0">';
+  echo '<input id="funding_progress_color" name="funding_progress_color" type="text" value="' . Util::h($fpSaved) . '" maxlength="16" placeholder="#2563eb" autocomplete="off" style="min-width:10rem" />';
+  echo '<input type="color" id="gds_fp_picker" value="' . Util::h($pickerDefault) . '" aria-label="Pick bar color" title="Pick bar color" /></div>';
+  echo '<span class="gds-help">Hex color for the filled portion of the funding bar on visitor project pages. Leave blank for the built-in default.</span></div>';
+  echo '<script>(function(){var t=document.getElementById("funding_progress_color");var c=document.getElementById("gds_fp_picker");if(!t||!c)return;c.addEventListener("input",function(){t.value=this.value});t.addEventListener("change",function(){if(/^#[0-9a-fA-F]{6}$/i.test(this.value))c.value=this.value});})();</script>';
   echo '<div class="gds-actions"><button type="submit" class="btn btn-primary">Save text</button></div>';
   echo '</form>';
 
@@ -2175,6 +2187,8 @@ HTML;
   $goalCur = Util::h((string)($invSettings['goal_currency'] ?? 'USD'));
   $minC = $invSettings['min_commitment'];
   $minStr = $minC !== null && $minC > 0 ? (string)$minC : '';
+  $eqOffer = $invSettings['equity_offered_pct'] ?? null;
+  $eqStr = ($eqOffer !== null && (float)$eqOffer > 0) ? (string)$eqOffer : '';
   echo '<div class="toggleRow">';
   echo '<div class="label"><strong>Enable investment module</strong><div class="muted">Shows progress bar and commitment flow on the visitor files page.</div></div>';
   echo '<label class="toggle" aria-label="Enable investment module"><input type="checkbox" name="investment_enabled" value="1"' . ($invEn ? ' checked' : '') . ' /><span class="switch" aria-hidden="true"></span></label>';
@@ -2189,7 +2203,11 @@ HTML;
   echo '<div class="gds-field" style="margin-bottom:0;min-width:160px">';
   echo '<label class="gds-label" for="min_commitment">Minimum commitment (optional)</label>';
   echo '<input id="min_commitment" name="min_commitment" type="text" inputmode="decimal" value="' . Util::h($minStr) . '" placeholder="0" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0;min-width:180px">';
+  echo '<label class="gds-label" for="equity_offered_pct">Equity at full goal (%)</label>';
+  echo '<input id="equity_offered_pct" name="equity_offered_pct" type="text" inputmode="decimal" value="' . Util::h($eqStr) . '" placeholder="30" /></div>';
   echo '</div>';
+  echo '<p class="gds-help" style="margin-top:var(--gds-space-2)">If set (for example 30), visitors see an <strong>implied ownership</strong> share: (their commitment ÷ funding goal) × this percentage, capped at this percentage. Leave blank to hide ownership estimates.</p>';
   echo '<div class="gds-actions" style="margin-top:var(--gds-space-3)"><button type="submit" class="btn btn-primary">Save investment settings</button></div>';
   echo '</form>';
 
@@ -2249,6 +2267,10 @@ HTML;
       echo '<div class="muted" style="margin-top:var(--gds-space-2);font-size:var(--gds-text-sm)"><strong>Address</strong><br>' . nl2br(Util::h((string)($s['signer_address'] ?? '')), false) . '</div>';
       if ($amt !== null) {
         echo '<div style="margin-top:var(--gds-space-2)"><span class="muted">Funding commitment:</span> <strong>' . Util::h($cur) . ' ' . Util::h(number_format($amt, 2)) . '</strong>';
+        $impAd = $investment->impliedOwnershipPercent($amt, $invSettings);
+        if ($impAd !== null) {
+          echo ' <span class="muted">· implied ownership at full goal: <strong>' . Util::h(number_format($impAd, 2)) . '%</strong></span>';
+        }
         if ($cmt && !empty($cmt['committed_at'])) {
           echo ' <span class="muted">(' . Util::h((string)$cmt['committed_at']) . ')</span>';
         }
@@ -2272,6 +2294,29 @@ HTML;
     }
   } else {
     echo '<p class="gds-lead" style="margin-bottom:0">No signatures yet.</p>';
+  }
+  $wlRows = $investment->listWaitlist((int)$proj['id']);
+  if (((int)($invSettings['enabled'] ?? 0)) === 1 && $wlRows !== []) {
+    echo '<hr class="gds-divider" style="margin:var(--gds-space-5) 0" />';
+    echo '<h3 class="gds-section-title" style="margin-bottom:var(--gds-space-3)">Funding waitlist</h3>';
+    echo '<p class="gds-help" style="margin-top:0">Visitors who joined after the funding goal was reached.</p>';
+    echo '<div style="overflow-x:auto"><div class="gds-table-wrap"><table style="width:100%;font-size:var(--gds-text-sm)">';
+    echo '<thead><tr><th>Updated</th><th>Name</th><th>Email</th><th>Phone</th><th>Desired</th><th>Address</th></tr></thead><tbody>';
+    foreach ($wlRows as $wr) {
+      $wa = (string)($wr['address'] ?? '');
+      $waShort = strlen($wa) > 80 ? substr($wa, 0, 77) . '…' : $wa;
+      $dam = isset($wr['desired_amount']) ? (float)$wr['desired_amount'] : 0.0;
+      $dcur = (string)($wr['desired_currency'] ?? 'USD');
+      echo '<tr>';
+      echo '<td>' . Util::h((string)($wr['updated_at'] ?? '')) . '</td>';
+      echo '<td>' . Util::h((string)($wr['full_name'] ?? '')) . '</td>';
+      echo '<td>' . Util::h((string)($wr['email'] ?? '')) . '</td>';
+      echo '<td>' . Util::h((string)($wr['phone'] ?? '')) . '</td>';
+      echo '<td>' . Util::h($dcur . ' ' . number_format($dam, 2)) . '</td>';
+      echo '<td style="max-width:220px;white-space:pre-wrap;word-break:break-word">' . Util::h($waShort) . '</td>';
+      echo '</tr>';
+    }
+    echo '</tbody></table></div></div>';
   }
   echo '</div>';
 

@@ -204,12 +204,33 @@ if (!$signed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST
   }
 
   if ($act === 'sign_step1') {
-    $nm = trim((string)($_POST['signer_name'] ?? ''));
+    $fn = trim((string)($_POST['signer_first_name'] ?? ''));
+    $ln = trim((string)($_POST['signer_last_name'] ?? ''));
     $pos = trim((string)($_POST['signer_position'] ?? ''));
-    $addr = trim((string)($_POST['signer_address'] ?? ''));
-    if ($nm === '' || $pos === '' || $addr === '') {
+    $l1 = trim((string)($_POST['addr_line1'] ?? ''));
+    $l2 = trim((string)($_POST['addr_line2'] ?? ''));
+    $city = trim((string)($_POST['addr_city'] ?? ''));
+    $region = trim((string)($_POST['addr_region'] ?? ''));
+    $postal = trim((string)($_POST['addr_postal'] ?? ''));
+    $country = trim((string)($_POST['addr_country'] ?? ''));
+    $nm = Util::mergeSignerName($fn, $ln);
+    $addr = Util::mergeSignerAddressParts($l1, $l2, $city, $region, $postal, $country);
+    $errs = [];
+    if ($fn === '' || $ln === '') {
+      $errs[] = 'Please enter your first and last name.';
+    }
+    if ($pos === '') {
+      $errs[] = 'Please enter your position or title.';
+    }
+    if ($l1 === '' || $city === '' || $region === '' || $postal === '') {
+      $errs[] = 'Please complete address line 1, city, state/province, and postal code.';
+    }
+    if ($addr === '') {
+      $errs[] = 'Please complete your mailing address.';
+    }
+    if ($errs) {
       renderHeader('Sign NDA');
-      echo '<div class="card"><div class="err"><strong>Please complete name, position, and address.</strong></div></div>';
+      echo '<div class="card"><div class="err"><strong>' . Util::h($errs[0]) . '</strong></div></div>';
       renderFooter();
       exit;
     }
@@ -218,8 +239,16 @@ if (!$signed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST
       $prevFt = $_SESSION[$draftSessKey]['free_text'];
     }
     $_SESSION[$draftSessKey] = [
+      'first_name' => $fn,
+      'last_name' => $ln,
       'name' => $nm,
       'position' => $pos,
+      'addr_line1' => $l1,
+      'addr_line2' => $l2,
+      'addr_city' => $city,
+      'addr_region' => $region,
+      'addr_postal' => $postal,
+      'addr_country' => $country,
       'address' => $addr,
       'free_text' => $prevFt,
     ];
@@ -260,6 +289,10 @@ if (!$signed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST
 
   $draft = $_SESSION[$draftSessKey] ?? null;
   $stepNow = (int)($_SESSION[$stepSessKey] ?? 1);
+  if (is_array($draft)) {
+    $draft = Util::normalizeSignerDraft($draft);
+    $_SESSION[$draftSessKey] = $draft;
+  }
 
   $errors = [];
   if ($nda === null) $errors[] = 'NDA template is not configured for this project yet.';
@@ -307,7 +340,7 @@ if (!$signed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST
     . '<p><strong>Email:</strong> ' . Util::h($email) . '</p>'
     . '<p><strong>Name:</strong> ' . Util::h($name) . '</p>'
     . '<p><strong>Position:</strong> ' . Util::h($pos) . '</p>'
-    . '<p><strong>Address:</strong> ' . Util::h($addr) . '</p>'
+    . '<p><strong>Address:</strong><br>' . nl2br(Util::h($addr), false) . '</p>'
     . '<p><strong>Signed at (UTC):</strong> ' . Util::h(gmdate('c')) . '</p>'
     . '<p><strong>NDA file:</strong> ' . Util::h((string)$nda['original_name']) . '</p>'
     . '<p><strong>Signature image:</strong><br/><img src="' . $sigForHtml . '" alt="Signature" style="max-width:420px;border:1px solid #ddd"/></p>';
@@ -361,15 +394,137 @@ if ($signed) {
   $invContractRow = $investment->getContract($projectId);
   $invFieldCount = count($investment->listContractFieldDefs($projectId));
   $invReady = ((int)($invSet['enabled'] ?? 0)) === 1 && $invContractRow !== null && $invFieldCount > 0;
-  $invPost = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action'])
-    && str_starts_with((string)$_POST['action'], 'inv_');
-  if ($invReady && ($invPost || isset($_GET['invest']))) {
+  $invClosed = $invReady && $investment->isFundingClosed($projectId);
+  $myCommit = null;
+  if (((int)($invSet['enabled'] ?? 0)) === 1) {
+    $myCommit = $investment->getCommitment($projectId, $email);
+  }
+
+  if ($invClosed && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && (string)($_POST['action'] ?? '') === 'inv_waitlist') {
+    if (!Auth::verifyCsrfToken((string)($_POST['_csrf'] ?? ''))) {
+      http_response_code(403);
+      header('Content-Type: text/plain; charset=utf-8');
+      echo 'Session expired. Please refresh and try again.';
+      exit;
+    }
+    $errs = [];
+    $fullName = trim((string)($_POST['waitlist_full_name'] ?? ''));
+    $wlEmail = strtolower(trim((string)($_POST['waitlist_email'] ?? '')));
+    $phone = trim((string)($_POST['waitlist_phone'] ?? ''));
+    $l1 = trim((string)($_POST['wl_addr_line1'] ?? ''));
+    $l2 = trim((string)($_POST['wl_addr_line2'] ?? ''));
+    $city = trim((string)($_POST['wl_addr_city'] ?? ''));
+    $region = trim((string)($_POST['wl_addr_region'] ?? ''));
+    $postal = trim((string)($_POST['wl_addr_postal'] ?? ''));
+    $country = trim((string)($_POST['wl_addr_country'] ?? ''));
+    $damtRaw = trim((string)($_POST['waitlist_desired_amount'] ?? ''));
+    $damt = (float)str_replace([',', ' '], '', $damtRaw);
+    $goalCur = strtoupper(trim((string)($invSet['goal_currency'] ?? 'USD')));
+    if ($goalCur === '') {
+      $goalCur = 'USD';
+    }
+
+    if ($fullName === '') {
+      $errs[] = 'Please enter your name.';
+    }
+    if (!filter_var($wlEmail, FILTER_VALIDATE_EMAIL)) {
+      $errs[] = 'Please enter a valid email address.';
+    }
+    if (strlen(preg_replace('/\D/', '', $phone)) < 7) {
+      $errs[] = 'Please enter a valid phone number.';
+    }
+    if ($l1 === '' || $l2 === '' || $city === '' || $region === '' || $postal === '' || $country === '') {
+      $errs[] = 'Please complete all address fields.';
+    }
+    if (!is_finite($damt) || $damt <= 0) {
+      $errs[] = 'Please enter the amount you hoped to contribute.';
+    }
+
+    $addr = Util::mergeSignerAddressParts($l1, $l2, $city, $region, $postal, $country);
+
+    if ($errs) {
+      $_SESSION['gds_wl_err_' . $projectId] = $errs[0];
+      $_SESSION['gds_wl_old_' . $projectId] = $_POST;
+    } else {
+      $investment->upsertWaitlistEntry($projectId, [
+        'full_name' => $fullName,
+        'email' => $wlEmail,
+        'phone' => $phone,
+        'address' => $addr,
+        'desired_amount' => $damt,
+        'desired_currency' => $goalCur,
+      ]);
+      $adminTo = trim((string)($config['waitlist_notify_email'] ?? ''));
+      if ($adminTo === '' || !filter_var($adminTo, FILTER_VALIDATE_EMAIL)) {
+        $adminTo = $db->getFirstAdminEmail() ?? '';
+      }
+      if ($adminTo !== '' && filter_var($adminTo, FILTER_VALIDATE_EMAIL)) {
+        $pname = (string)$project['name'];
+        $subject = 'Put me on the waitlist for this project: ' . $pname;
+        $adminUrl = Util::baseUrl($config) . '/admin/index.php?view=project&project_id=' . $projectId;
+        $text = "Someone requested to be on the funding waitlist.\r\n\r\n"
+          . "Project: {$pname}\r\nAdmin: {$adminUrl}\r\n\r\n"
+          . "Name: {$fullName}\r\nEmail: {$wlEmail}\r\nPhone: {$phone}\r\n"
+          . "Amount they hoped to contribute: {$goalCur} " . number_format($damt, 2) . "\r\n\r\nMailing address:\r\n"
+          . str_replace("\r\n", "\n", $addr) . "\r\n";
+        $safe = static fn(string $s): string => Util::h($s);
+        $html = '<p><strong>Put me on the waitlist for this project</strong></p>'
+          . '<p>Project: <strong>' . $safe($pname) . '</strong></p>'
+          . '<p><a href="' . $safe($adminUrl) . '">Open this project in admin</a></p>'
+          . '<table cellpadding="8" cellspacing="0" border="1" style="border-collapse:collapse;font-size:14px;max-width:560px">'
+          . '<tr><th align="left">Name</th><td>' . $safe($fullName) . '</td></tr>'
+          . '<tr><th align="left">Email</th><td>' . $safe($wlEmail) . '</td></tr>'
+          . '<tr><th align="left">Phone</th><td>' . $safe($phone) . '</td></tr>'
+          . '<tr><th align="left">Desired commitment</th><td>' . $safe($goalCur . ' ' . number_format($damt, 2)) . '</td></tr>'
+          . '<tr><th align="left">Address</th><td>' . nl2br($safe($addr), false) . '</td></tr>'
+          . '</table>';
+        if (!Mail::sendOutbound($config, $adminTo, $subject, $text, $html)) {
+          error_log('[gds] waitlist: saved to DB but admin email failed for project ' . $projectId);
+        }
+      } else {
+        error_log('[gds] waitlist: set waitlist_notify_email in config or add an admin user to receive email');
+      }
+      unset($_SESSION['gds_wl_err_' . $projectId], $_SESSION['gds_wl_old_' . $projectId]);
+      $_SESSION['gds_wl_ok_' . $projectId] = true;
+    }
+    $rQ = ['p' => $projectToken];
+    if ($accessToken !== '') {
+      $rQ['t'] = $accessToken;
+    }
+    header('Location: index.php?' . http_build_query($rQ));
+    exit;
+  }
+
+  $invAct = (string)($_POST['action'] ?? '');
+  $invPost = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $invAct !== '' && str_starts_with($invAct, 'inv_') && $invAct !== 'inv_waitlist';
+  if ($invReady && !$invClosed && ($invPost || isset($_GET['invest']))) {
     require __DIR__ . '/investment-sign-flow.php';
     exit;
   }
 
   renderHeader('Files');
   renderAnalyticsTracker($projectToken, 'files', $email);
+  $wlFlashOk = !empty($_SESSION['gds_wl_ok_' . $projectId]);
+  if ($wlFlashOk) {
+    unset($_SESSION['gds_wl_ok_' . $projectId]);
+  }
+  $wlFlashErr = '';
+  $wlOld = [];
+  if (!empty($_SESSION['gds_wl_err_' . $projectId])) {
+    $wlFlashErr = (string)$_SESSION['gds_wl_err_' . $projectId];
+    unset($_SESSION['gds_wl_err_' . $projectId]);
+  }
+  if (!empty($_SESSION['gds_wl_old_' . $projectId]) && is_array($_SESSION['gds_wl_old_' . $projectId])) {
+    $wlOld = $_SESSION['gds_wl_old_' . $projectId];
+    unset($_SESSION['gds_wl_old_' . $projectId]);
+  }
+  $wlv = static function (array $old, string $k): string {
+    if (!isset($old[$k])) {
+      return '';
+    }
+    $v = $old[$k];
+    return Util::h(is_scalar($v) ? (string)$v : '');
+  };
   $pn = Util::h((string)$project['name']);
   $signoutHref = Util::h('index.php?p=' . urlencode($projectToken) . '&signout=1');
   echo '<div class="card">';
@@ -378,7 +533,6 @@ if ($signed) {
   $signedHref = 'download.php?p=' . urlencode($projectToken) . '&signed_nda=1';
   echo '<div class="gds-card-header" style="margin-top:0">';
   echo '<div class="gds-section-title" style="margin:0">Your files</div>';
-  echo '<div><a href="' . Util::h($signedHref) . '" target="gds_download_frame" rel="noopener" class="btn btn-secondary gds-btn--compact">Download signed NDA</a></div>';
   echo '</div>';
 
   if (((int)($invSet['enabled'] ?? 0)) === 1) {
@@ -389,12 +543,17 @@ if ($signed) {
       $goalAmt = (float)($invSet['goal_amount'] ?? 0);
       $goalCur = (string)($invSet['goal_currency'] ?? 'USD');
       $pct = ($goalAmt > 0) ? min(100.0, ($totalCommitted / $goalAmt) * 100.0) : 0.0;
-      $myCommit = $investment->getCommitment($projectId, $email);
       $bq = ['p' => $projectToken, 'invest' => '1'];
       if ($accessToken !== '') {
         $bq['t'] = $accessToken;
       }
       $investHref = 'index.php?' . http_build_query($bq);
+      $wlQ = ['p' => $projectToken];
+      if ($accessToken !== '') {
+        $wlQ['t'] = $accessToken;
+      }
+      $wlFormAction = 'index.php?' . http_build_query($wlQ);
+      $wlEmailInput = isset($wlOld['waitlist_email']) ? $wlv($wlOld, 'waitlist_email') : Util::h($email);
       echo '<div class="gds-investment-card" style="margin-top:var(--gds-space-4);padding-top:var(--gds-space-4);border-top:1px solid var(--gds-border)">';
       echo '<div class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Funding progress</div>';
       echo '<p class="gds-lead" style="margin-top:0"><strong>' . Util::h($goalCur . ' ' . number_format($totalCommitted, 0)) . '</strong> committed';
@@ -403,28 +562,108 @@ if ($signed) {
       }
       echo '</p>';
       if ($goalAmt > 0) {
-        echo '<div class="gds-investment-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' . (int)round($pct) . '">';
-        echo '<div class="gds-investment-bar__fill" style="width:' . Util::h((string)min(100, round($pct, 2))) . '%"></div></div>';
+        $barCls = 'gds-investment-bar' . ($invClosed ? ' gds-investment-bar--complete' : '');
+        $wPct = min(100, round($pct, 2));
+        $fillStyle = 'width:' . Util::h((string)$wPct) . '%';
+        $gbrand = $GLOBALS['gds_branding'] ?? [];
+        $fpHex = isset($gbrand['funding_progress_color']) && is_string($gbrand['funding_progress_color'])
+          ? trim($gbrand['funding_progress_color'])
+          : '';
+        if ($fpHex !== '') {
+          $fillStyle .= ';background:' . Util::h($fpHex);
+        }
+        echo '<div class="' . $barCls . '" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' . (int)round($pct) . '">';
+        echo '<div class="gds-investment-bar__fill" style="' . $fillStyle . '"></div></div>';
+      }
+      if ($invClosed) {
+        if ($wlFlashOk) {
+          echo '<div class="ok gds-flash" style="margin-top:var(--gds-space-3)"><strong>You’re on the list.</strong> We’ll use your details if a spot opens up.</div>';
+        }
+        echo '<div class="gds-funded-goal" style="margin-top:var(--gds-space-4)">';
+        echo '<div class="gds-funded-goal__icon" aria-hidden="true">✓</div>';
+        echo '<div><strong>Goal reached</strong><p class="gds-lead" style="margin:var(--gds-space-2) 0 0">This project is fully funded. New commitments are closed.</p></div>';
+        echo '</div>';
+        echo '<div class="gds-actions" style="margin-top:var(--gds-space-4)">';
+        echo '<button type="button" class="btn btn-primary" id="gdsWlOpenBtn" aria-haspopup="dialog" aria-controls="gdsWlModal">Put me on the waitlist</button>';
+        echo '</div>';
       }
       if ($myCommit) {
         $cam = (float)($myCommit['committed_amount'] ?? 0);
         $ccur = (string)($myCommit['currency'] ?? $goalCur);
-        echo '<p class="gds-lead" style="margin-top:var(--gds-space-3)">Your commitment: <strong>' . Util::h($ccur . ' ' . number_format($cam, 2)) . '</strong></p>';
-        echo '<div class="gds-actions" style="flex-wrap:wrap">';
-        echo '<a class="btn btn-primary gds-btn--compact" href="' . Util::h($investHref) . '">Update commitment</a>';
-        $scHref = 'download.php?p=' . urlencode($projectToken) . '&signed_contract=1' . ($accessToken !== '' ? '&t=' . urlencode($accessToken) : '');
-        if (!empty($myCommit['signed_pdf_path']) && is_file((string)$myCommit['signed_pdf_path'])) {
-          echo '<a class="btn btn-secondary gds-btn--compact" href="' . Util::h($scHref) . '" target="gds_download_frame" rel="noopener">Download signed contract</a>';
+        $impliedMy = $investment->impliedOwnershipPercent($cam, $invSet);
+        echo '<p class="gds-lead" style="margin-top:var(--gds-space-3)">Your commitment: <strong>' . Util::h($ccur . ' ' . number_format($cam, 2)) . '</strong>';
+        if ($impliedMy !== null) {
+          echo '<br><span class="muted">Implied ownership at full goal:</span> <strong>' . Util::h(number_format($impliedMy, 2)) . '%</strong>';
+        }
+        echo '</p>';
+        echo '<div class="gds-actions gds-actions--funding" style="flex-wrap:wrap">';
+        if (!$invClosed) {
+          echo '<a class="btn btn-primary gds-btn--compact" href="' . Util::h($investHref) . '">Update commitment</a>';
         }
         echo '</div>';
-      } else {
+      } elseif (!$invClosed) {
         echo '<div class="gds-actions" style="margin-top:var(--gds-space-3)">';
         echo '<a class="btn btn-primary" href="' . Util::h($investHref) . '">Commit to this project</a>';
         echo '</div>';
       }
       echo '</div>';
+      if ($invClosed) {
+        $modalHidden = $wlFlashErr === '' ? ' hidden' : '';
+        $rm = Util::requiredMark();
+        echo '<div id="gdsWlModal" class="gds-modal"' . $modalHidden . ' role="dialog" aria-modal="true" aria-labelledby="gdsWlTitle" data-gds-wl-autoopen="' . ($wlFlashErr !== '' ? '1' : '0') . '">';
+        echo '<div class="gds-modal__backdrop" id="gdsWlBackdrop" tabindex="-1"></div>';
+        echo '<div class="gds-modal__panel">';
+        echo '<div class="gds-modal__head"><h2 class="gds-modal__title" id="gdsWlTitle">Join the waitlist</h2>';
+        echo '<button type="button" class="gds-modal__close" id="gdsWlCloseBtn" aria-label="Close">&times;</button></div>';
+        echo '<p class="gds-lead" style="margin-top:0">If space opens, we can reach you using the information below.</p>';
+        if ($wlFlashErr !== '') {
+          echo '<div class="err gds-flash" style="margin-bottom:var(--gds-space-3)"><strong>' . Util::h($wlFlashErr) . '</strong></div>';
+        }
+        echo '<form method="post" action="' . Util::h($wlFormAction) . '" class="gds-sign-detail-form" style="margin-top:0">';
+        echo Auth::csrfFieldHtml();
+        echo '<input type="hidden" name="action" value="inv_waitlist" />';
+        echo '<div class="gds-field"><label class="gds-label" for="wl_name">Your name' . $rm . '</label>';
+        echo '<input id="wl_name" name="waitlist_full_name" type="text" required autocomplete="name" value="' . $wlv($wlOld, 'waitlist_full_name') . '" /></div>';
+        echo '<div class="gds-field"><label class="gds-label" for="wl_email">Email address' . $rm . '</label>';
+        echo '<input id="wl_email" name="waitlist_email" type="email" required autocomplete="email" value="' . $wlEmailInput . '" /></div>';
+        echo '<div class="gds-field"><label class="gds-label" for="wl_phone">Phone number' . $rm . '</label>';
+        echo '<input id="wl_phone" name="waitlist_phone" type="tel" required autocomplete="tel" value="' . $wlv($wlOld, 'waitlist_phone') . '" /></div>';
+        echo '<div class="gds-form-section" style="border-bottom:0;padding-bottom:0;margin-bottom:var(--gds-space-3)">';
+        echo '<div class="gds-section-title">Mailing address' . $rm . '</div>';
+        echo '<div class="gds-field"><label class="gds-label" for="wl_a1">Address line 1' . $rm . '</label>';
+        echo '<input id="wl_a1" name="wl_addr_line1" type="text" required autocomplete="address-line1" value="' . $wlv($wlOld, 'wl_addr_line1') . '" /></div>';
+        echo '<div class="gds-field"><label class="gds-label" for="wl_a2">Address line 2' . $rm . '</label>';
+        echo '<input id="wl_a2" name="wl_addr_line2" type="text" required autocomplete="address-line2" value="' . $wlv($wlOld, 'wl_addr_line2') . '" /></div>';
+        echo '<div class="row">';
+        echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="wl_city">City' . $rm . '</label>';
+        echo '<input id="wl_city" name="wl_addr_city" type="text" required autocomplete="address-level2" value="' . $wlv($wlOld, 'wl_addr_city') . '" /></div>';
+        echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="wl_reg">State / province' . $rm . '</label>';
+        echo '<input id="wl_reg" name="wl_addr_region" type="text" required autocomplete="address-level1" value="' . $wlv($wlOld, 'wl_addr_region') . '" /></div>';
+        echo '</div><div class="row">';
+        echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="wl_zip">ZIP / postal code' . $rm . '</label>';
+        echo '<input id="wl_zip" name="wl_addr_postal" type="text" required autocomplete="postal-code" value="' . $wlv($wlOld, 'wl_addr_postal') . '" /></div>';
+        echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="wl_ctry">Country' . $rm . '</label>';
+        echo '<input id="wl_ctry" name="wl_addr_country" type="text" required autocomplete="country-name" value="' . $wlv($wlOld, 'wl_addr_country') . '" /></div>';
+        echo '</div></div>';
+        echo '<div class="gds-field"><label class="gds-label" for="wl_amt">Amount you hoped to contribute (' . Util::h($goalCur) . ')' . $rm . '</label>';
+        echo '<input id="wl_amt" name="waitlist_desired_amount" type="text" inputmode="decimal" required placeholder="25000" value="' . $wlv($wlOld, 'waitlist_desired_amount') . '" /></div>';
+        echo '<div class="gds-actions" style="margin-top:var(--gds-space-4)"><button type="submit" class="btn btn-primary">Notify me if someone drops out</button></div>';
+        echo '</form></div></div>';
+        echo '<script>(function(){var m=document.getElementById("gdsWlModal");if(!m)return;var open=document.getElementById("gdsWlOpenBtn");var close=document.getElementById("gdsWlCloseBtn");var bd=document.getElementById("gdsWlBackdrop");function show(){m.removeAttribute("hidden");m.setAttribute("aria-hidden","false");document.body.style.overflow="hidden";var f=m.querySelector("input:not([type=hidden])");if(f)f.focus();}function hide(){m.setAttribute("hidden","");m.setAttribute("aria-hidden","true");document.body.style.overflow="";}if(open)open.addEventListener("click",show);if(close)close.addEventListener("click",hide);if(bd)bd.addEventListener("click",hide);if(m.getAttribute("data-gds-wl-autoopen")==="1")show();document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!m.hasAttribute("hidden"))hide();});})();</script>';
+      }
     }
   }
+
+  $signedContractHref = 'download.php?p=' . urlencode($projectToken) . '&signed_contract=1' . ($accessToken !== '' ? '&t=' . urlencode($accessToken) : '');
+  $hasSignedContractPdf = $myCommit && !empty($myCommit['signed_pdf_path']) && is_file((string)$myCommit['signed_pdf_path']);
+  echo '<div class="gds-signed-docs">';
+  echo '<div class="gds-signed-docs__label">Signed documents</div>';
+  echo '<div class="gds-actions gds-signed-docs__actions">';
+  echo '<a class="btn btn-secondary gds-btn--compact" href="' . Util::h($signedHref) . '" target="gds_download_frame" rel="noopener">Download signed NDA</a>';
+  if ($hasSignedContractPdf) {
+    echo '<a class="btn btn-secondary gds-btn--compact" href="' . Util::h($signedContractHref) . '" target="gds_download_frame" rel="noopener">Download signed contract</a>';
+  }
+  echo '</div></div>';
 
   $files = $projects->listFiles($projectId);
 
@@ -558,6 +797,11 @@ if (!is_array($draft)) {
   }
 }
 
+if (is_array($draft)) {
+  $draft = Util::normalizeSignerDraft($draft);
+  $_SESSION[$draftSessKey] = $draft;
+}
+
 $freeTextDefs = array_values(array_filter($fieldDefs, fn($d) => (string)($d['field_key'] ?? '') === 'free_text'));
 $defsJson = json_encode($fieldDefs, JSON_UNESCAPED_SLASHES) ?: '[]';
 
@@ -573,17 +817,42 @@ $renderStepper = static function (int $active): void {
 
 if ($step === 1) {
   $renderStepper(1);
-  $dn = is_array($draft) ? Util::h((string)($draft['name'] ?? '')) : '';
   $dp = is_array($draft) ? Util::h((string)($draft['position'] ?? '')) : '';
-  $da = is_array($draft) ? Util::h((string)($draft['address'] ?? '')) : '';
-  echo '<form method="post">';
+  $dFn = is_array($draft) ? Util::h((string)($draft['first_name'] ?? '')) : '';
+  $dLn = is_array($draft) ? Util::h((string)($draft['last_name'] ?? '')) : '';
+  $dL1 = is_array($draft) ? Util::h((string)($draft['addr_line1'] ?? '')) : '';
+  $dL2 = is_array($draft) ? Util::h((string)($draft['addr_line2'] ?? '')) : '';
+  $dCity = is_array($draft) ? Util::h((string)($draft['addr_city'] ?? '')) : '';
+  $dReg = is_array($draft) ? Util::h((string)($draft['addr_region'] ?? '')) : '';
+  $dZip = is_array($draft) ? Util::h((string)($draft['addr_postal'] ?? '')) : '';
+  $dCtry = is_array($draft) ? Util::h((string)($draft['addr_country'] ?? '')) : '';
+  echo '<form method="post" class="gds-sign-detail-form">';
   echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="sign_step1" />';
+
+  echo '<div class="gds-form-section">';
+  echo '<div class="gds-section-title">Your name</div>';
   echo '<div class="row">';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="signer_name">Full name</label><input id="signer_name" name="signer_name" required value="' . $dn . '" autocomplete="name" /></div>';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="signer_position">Position / title</label><input id="signer_position" name="signer_position" required value="' . $dp . '" autocomplete="organization-title" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_fn">First name</label><input id="nda_fn" name="signer_first_name" type="text" required value="' . $dFn . '" autocomplete="given-name" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_ln">Last name</label><input id="nda_ln" name="signer_last_name" type="text" required value="' . $dLn . '" autocomplete="family-name" /></div>';
   echo '</div>';
-  echo '<div class="gds-field"><label class="gds-label" for="signer_address">Address</label><textarea id="signer_address" name="signer_address" rows="3" required placeholder="Street, city, state/province, postal code" autocomplete="street-address">' . $da . '</textarea></div>';
+  echo '<div class="gds-field"><label class="gds-label" for="signer_position">Position / title</label><input id="signer_position" name="signer_position" type="text" required value="' . $dp . '" autocomplete="organization-title" /></div>';
+  echo '</div>';
+
+  echo '<div class="gds-form-section">';
+  echo '<div class="gds-section-title">Mailing address</div>';
+  echo '<div class="gds-field"><label class="gds-label" for="nda_a1">Address line 1</label><input id="nda_a1" name="addr_line1" type="text" required value="' . $dL1 . '" autocomplete="address-line1" placeholder="Street address, P.O. box" /></div>';
+  echo '<div class="gds-field"><label class="gds-label" for="nda_a2">Address line 2 <span class="muted" style="font-weight:500">(optional)</span></label><input id="nda_a2" name="addr_line2" type="text" value="' . $dL2 . '" autocomplete="address-line2" placeholder="Apartment, suite, unit" /></div>';
+  echo '<div class="row">';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_city">City</label><input id="nda_city" name="addr_city" type="text" required value="' . $dCity . '" autocomplete="address-level2" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_reg">State / province</label><input id="nda_reg" name="addr_region" type="text" required value="' . $dReg . '" autocomplete="address-level1" /></div>';
+  echo '</div>';
+  echo '<div class="row">';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_zip">ZIP / postal code</label><input id="nda_zip" name="addr_postal" type="text" required value="' . $dZip . '" autocomplete="postal-code" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_ctry">Country <span class="muted" style="font-weight:500">(optional)</span></label><input id="nda_ctry" name="addr_country" type="text" value="' . $dCtry . '" autocomplete="country-name" /></div>';
+  echo '</div>';
+  echo '</div>';
+
   echo '<div class="gds-actions"><button type="submit" class="btn btn-primary">Continue</button></div>';
   echo '</form>';
   echo '</div>';
@@ -975,6 +1244,28 @@ echo <<<HTML
     return { x, y, w: boxW, h: boxH };
   }
 
+  function drawAddressBlock(page, text, box, font, rgbColor) {
+    const raw = String(text || "").replace(/\r/g, "").split("\n").map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => s.length > 0);
+    if (raw.length === 0) return;
+    let fontSize = Math.max(7, Math.min(12, box.h * 0.2));
+    const lineHeight = fontSize * 1.22;
+    const maxLines = Math.max(1, Math.floor((box.h - 6) / lineHeight));
+    const lines = raw.slice(0, maxLines);
+    let baseline = box.y + box.h - 4 - fontSize;
+    for (const line of lines) {
+      if (baseline < box.y + 2) break;
+      page.drawText(line, {
+        x: box.x + 3,
+        y: baseline,
+        size: fontSize,
+        font,
+        color: rgbColor,
+        maxWidth: Math.max(0, box.w - 6),
+      });
+      baseline -= lineHeight;
+    }
+  }
+
   async function generateSignedPdf(signatureDataUrl) {
     const name = (document.querySelector('input[name="signer_name"]') || {}).value || "";
     const position = (document.querySelector('input[name="signer_position"]') || {}).value || "";
@@ -1015,7 +1306,7 @@ echo <<<HTML
         if (key === "signed_date") text = dateStr;
         if (key === "signer_name") text = name;
         if (key === "signer_position") text = position;
-        if (key === "signer_address") text = address.replace(/\\s+/g, " ").trim();
+        if (key === "signer_address") text = address.replace(/\r\n/g, "\n").trim();
         if (key === "free_text") {
           const id = String(def.id || "");
           const el = document.querySelector('[name="free_text[' + id + ']"]');
@@ -1023,15 +1314,21 @@ echo <<<HTML
         }
         if (!text) continue;
 
-        const fontSize = Math.max(9, Math.min(14, box.h * 0.65));
-        page.drawText(text, {
-          x: box.x + 3,
-          y: box.y + Math.max(2, (box.h - fontSize) / 2),
-          size: fontSize,
-          font,
-          color: pdfLib.rgb(0.07, 0.09, 0.12),
-          maxWidth: Math.max(0, box.w - 6),
-        });
+        const box = toPdfCoords(page, def);
+        const rgbColor = pdfLib.rgb(0.07, 0.09, 0.12);
+        if (key === "signer_address") {
+          drawAddressBlock(page, text, box, font, rgbColor);
+        } else {
+          const fontSize = Math.max(9, Math.min(14, box.h * 0.65));
+          page.drawText(text.replace(/\s+/g, " ").trim(), {
+            x: box.x + 3,
+            y: box.y + Math.max(2, (box.h - fontSize) / 2),
+            size: fontSize,
+            font,
+            color: rgbColor,
+            maxWidth: Math.max(0, box.w - 6),
+          });
+        }
       }
     }
 

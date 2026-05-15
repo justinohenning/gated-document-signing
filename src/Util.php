@@ -23,6 +23,11 @@ final class Util {
     return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
   }
 
+  /** Mark for required form fields (screen readers: label wraps control or use aria-required on input). */
+  public static function requiredMark(): string {
+    return ' <span class="gds-req" aria-hidden="true">*</span>';
+  }
+
   /** @return array{0:string,1:string} */
   public static function splitFullNameForForm(string $full): array {
     $t = trim(preg_replace('/\s+/u', ' ', $full));
@@ -118,6 +123,47 @@ final class Util {
       $out[] = $c;
     }
     return implode("\n", $out);
+  }
+
+  /**
+   * Fill granular signer keys from legacy name/address when needed, then refresh merged name and address.
+   *
+   * @param array<string, mixed> $draft
+   * @return array<string, mixed>
+   */
+  public static function normalizeSignerDraft(array $draft): array {
+    if (!isset($draft['first_name']) && isset($draft['name'])) {
+      [$f, $l] = self::splitFullNameForForm((string)$draft['name']);
+      $draft['first_name'] = $f;
+      $draft['last_name'] = $l;
+    }
+    if (!isset($draft['addr_line1']) && isset($draft['address'])) {
+      $p = self::splitLegacyAddressForForm((string)$draft['address']);
+      $draft['addr_line1'] = $p['line1'];
+      $draft['addr_line2'] = $p['line2'];
+      $draft['addr_city'] = $p['city'];
+      $draft['addr_region'] = $p['region'];
+      $draft['addr_postal'] = $p['postal'];
+      $draft['addr_country'] = $p['country'];
+    }
+    $draft['first_name'] = (string)($draft['first_name'] ?? '');
+    $draft['last_name'] = (string)($draft['last_name'] ?? '');
+    $draft['addr_line1'] = (string)($draft['addr_line1'] ?? '');
+    $draft['addr_line2'] = (string)($draft['addr_line2'] ?? '');
+    $draft['addr_city'] = (string)($draft['addr_city'] ?? '');
+    $draft['addr_region'] = (string)($draft['addr_region'] ?? '');
+    $draft['addr_postal'] = (string)($draft['addr_postal'] ?? '');
+    $draft['addr_country'] = (string)($draft['addr_country'] ?? '');
+    $draft['name'] = self::mergeSignerName($draft['first_name'], $draft['last_name']);
+    $draft['address'] = self::mergeSignerAddressParts(
+      $draft['addr_line1'],
+      $draft['addr_line2'],
+      $draft['addr_city'],
+      $draft['addr_region'],
+      $draft['addr_postal'],
+      $draft['addr_country']
+    );
+    return $draft;
   }
 
   public static function baseUrl(array $config): string {

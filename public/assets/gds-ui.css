@@ -393,24 +393,24 @@ body.gds-app {
   margin-bottom: 0;
 }
 
-/* Investment commitment — step 1 detail form (grouped like other admin/visitor forms) */
-.gds-inv-detail-form {
+/* Visitor signing — step 1 detail form (NDA + investment commitment) */
+.gds-sign-detail-form {
   margin-top: var(--gds-space-4);
 }
 
-.gds-inv-detail-form .gds-form-section {
+.gds-sign-detail-form .gds-form-section {
   margin-bottom: var(--gds-space-5);
   padding-bottom: var(--gds-space-5);
   border-bottom: 1px solid var(--gds-border);
 }
 
-.gds-inv-detail-form .gds-form-section:last-of-type {
+.gds-sign-detail-form .gds-form-section:last-of-type {
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: 0;
 }
 
-.gds-inv-detail-form .gds-form-section > .gds-section-title {
+.gds-sign-detail-form .gds-form-section > .gds-section-title {
   margin-bottom: var(--gds-space-3);
 }
 
@@ -604,6 +604,31 @@ button.gds-btn--compact {
 .gds-actions--split {
   justify-content: space-between;
   align-items: center;
+}
+
+.gds-actions--funding {
+  justify-content: flex-start;
+  margin-top: var(--gds-space-3);
+}
+
+/* Signed NDA + contract downloads grouped below funding / files intro */
+.gds-signed-docs {
+  margin-top: var(--gds-space-4);
+  padding-top: var(--gds-space-4);
+  border-top: 1px solid var(--gds-border);
+}
+.gds-signed-docs__label {
+  font-size: var(--gds-text-xs);
+  color: var(--gds-muted, #6b7280);
+  margin-bottom: var(--gds-space-2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.gds-signed-docs__actions {
+  justify-content: flex-start;
+  gap: var(--gds-space-2);
+  margin-top: 0;
+  flex-wrap: wrap;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1910,8 +1935,119 @@ tr:hover .gds-file-rename-btn,
 .gds-investment-bar__fill {
   height: 100%;
   border-radius: 999px;
+  /* Inline `background` from white-label funding bar color overrides this when set. */
   background: linear-gradient(90deg, #2563eb, #4f7cff);
   transition: width 0.35s ease;
+}
+
+.gds-investment-bar--complete .gds-investment-bar__fill {
+  background: linear-gradient(90deg, #059669, #34d399);
+  animation: gds-funded-shimmer 2.4s ease-in-out infinite;
+}
+
+@keyframes gds-funded-shimmer {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.12);
+  }
+}
+
+.gds-funded-goal {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gds-space-3, 12px);
+  padding: var(--gds-space-4, 16px);
+  border-radius: var(--gds-radius-lg, 12px);
+  border: 1px solid var(--gds-border, #e5e7eb);
+  background: var(--gds-surface-raised, #fafafa);
+  max-width: 32rem;
+}
+
+.gds-funded-goal__icon {
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  background: #059669;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.gds-req {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.gds-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gds-space-4, 16px);
+  box-sizing: border-box;
+}
+
+.gds-modal[hidden] {
+  display: none !important;
+}
+
+.gds-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.gds-modal__panel {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: min(92vh, 720px);
+  overflow: auto;
+  background: var(--gds-surface-raised, #fff);
+  border-radius: var(--gds-radius-lg, 12px);
+  box-shadow: var(--gds-shadow-card, 0 12px 40px rgba(0, 0, 0, 0.18));
+  padding: var(--gds-space-5, 20px);
+  border: 1px solid var(--gds-border, #e5e7eb);
+}
+
+.gds-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gds-space-3, 12px);
+  margin-bottom: var(--gds-space-3, 12px);
+}
+
+.gds-modal__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.gds-modal__close {
+  border: 0;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--gds-text-secondary, #6b7280);
+  padding: 0 4px;
+  border-radius: var(--gds-radius-md, 8px);
+}
+
+.gds-modal__close:hover {
+  color: var(--gds-text, #111827);
+  background: var(--gds-surface-inset, #f3f4f6);
 }
 
 /* ── Admin visitor profiles ─────────────────────────────────────────────── */

@@ -30,6 +30,8 @@ return [
   'mail_from_name' => 'Gated Document Signing',
   // How long the email confirmation link stays valid (hours; max 168).
   'email_verify_ttl_hours' => 24,
+  // Optional: receive funding waitlist notifications (visitor submits “notify me”). Falls back to first admin account email.
+  // 'waitlist_notify_email' => 'you@yourdomain.com',
   // ── Email delivery ──────────────────────────────────────────────────────────
   // Option A — SendGrid API key (recommended; bypasses SMTP port blocks, best deliverability).
   // Create a key at https://app.sendgrid.com/settings/api_keys with "Mail Send" permission,
