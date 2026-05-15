@@ -393,6 +393,27 @@ body.gds-app {
   margin-bottom: 0;
 }
 
+/* Investment commitment — step 1 detail form (grouped like other admin/visitor forms) */
+.gds-inv-detail-form {
+  margin-top: var(--gds-space-4);
+}
+
+.gds-inv-detail-form .gds-form-section {
+  margin-bottom: var(--gds-space-5);
+  padding-bottom: var(--gds-space-5);
+  border-bottom: 1px solid var(--gds-border);
+}
+
+.gds-inv-detail-form .gds-form-section:last-of-type {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.gds-inv-detail-form .gds-form-section > .gds-section-title {
+  margin-bottom: var(--gds-space-3);
+}
+
 .gds-label,
 label.gds-label {
   display: block;

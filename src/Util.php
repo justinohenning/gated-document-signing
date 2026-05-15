@@ -23,6 +23,103 @@ final class Util {
     return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
   }
 
+  /** @return array{0:string,1:string} */
+  public static function splitFullNameForForm(string $full): array {
+    $t = trim(preg_replace('/\s+/u', ' ', $full));
+    if ($t === '') {
+      return ['', ''];
+    }
+    $parts = preg_split('/\s+/u', $t, 2);
+    $first = (string)($parts[0] ?? '');
+    $last = (string)($parts[1] ?? '');
+    return [$first, $last];
+  }
+
+  public static function mergeSignerName(string $first, string $last): string {
+    $f = trim(preg_replace('/\s+/u', ' ', $first));
+    $l = trim(preg_replace('/\s+/u', ' ', $last));
+    if ($f === '') {
+      return $l;
+    }
+    if ($l === '') {
+      return $f;
+    }
+    return $f . ' ' . $l;
+  }
+
+  /**
+   * Build a multi-line mailing address for PDFs and storage (street lines, then "City, Region Postal", then country).
+   *
+   * @return array{line1:string,line2:string,city:string,region:string,postal:string,country:string}
+   */
+  public static function splitLegacyAddressForForm(string $addr): array {
+    $blank = ['line1' => '', 'line2' => '', 'city' => '', 'region' => '', 'postal' => '', 'country' => ''];
+    $addr = trim($addr);
+    if ($addr === '') {
+      return $blank;
+    }
+    $raw = preg_split('/\r\n|\r|\n/', $addr);
+    $lines = [];
+    foreach (is_array($raw) ? $raw : [] as $ln) {
+      $ln = trim((string)$ln);
+      if ($ln !== '') {
+        $lines[] = $ln;
+      }
+    }
+    $n = count($lines);
+    if ($n === 0) {
+      return $blank;
+    }
+    if ($n === 1) {
+      return ['line1' => $lines[0], 'line2' => '', 'city' => '', 'region' => '', 'postal' => '', 'country' => ''];
+    }
+    if ($n === 2) {
+      return ['line1' => $lines[0], 'line2' => '', 'city' => $lines[1], 'region' => '', 'postal' => '', 'country' => ''];
+    }
+    if ($n === 3) {
+      return ['line1' => $lines[0], 'line2' => $lines[1], 'city' => $lines[2], 'region' => '', 'postal' => '', 'country' => ''];
+    }
+    return [
+      'line1' => $lines[0],
+      'line2' => $lines[1],
+      'city' => $lines[2],
+      'region' => $lines[3],
+      'postal' => $n > 4 ? $lines[4] : '',
+      'country' => $n > 5 ? implode("\n", array_slice($lines, 5)) : '',
+    ];
+  }
+
+  public static function mergeSignerAddressParts(
+    string $line1,
+    string $line2,
+    string $city,
+    string $region,
+    string $postal,
+    string $country
+  ): string {
+    $out = [];
+    $l1 = trim($line1);
+    $l2 = trim($line2);
+    if ($l1 !== '') {
+      $out[] = $l1;
+    }
+    if ($l2 !== '') {
+      $out[] = $l2;
+    }
+    $cityT = trim(preg_replace('/\s+/u', ' ', $city));
+    $regionT = trim(preg_replace('/\s+/u', ' ', $region));
+    $postalT = trim(preg_replace('/\s+/u', ' ', $postal));
+    $suffix = trim($regionT . ' ' . $postalT);
+    if ($cityT !== '' || $suffix !== '') {
+      $out[] = $cityT === '' ? $suffix : ($suffix === '' ? $cityT : $cityT . ', ' . $suffix);
+    }
+    $c = trim(preg_replace('/\s+/u', ' ', $country));
+    if ($c !== '') {
+      $out[] = $c;
+    }
+    return implode("\n", $out);
+  }
+
   public static function baseUrl(array $config): string {
     if (!empty($config['base_url'])) {
       return rtrim($config['base_url'], '/');

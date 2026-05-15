@@ -54,14 +54,31 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']))
   }
 
   if ($act === 'inv_step1') {
-    $nm = trim((string)($_POST['signer_name'] ?? ''));
+    $fn = trim((string)($_POST['signer_first_name'] ?? ''));
+    $ln = trim((string)($_POST['signer_last_name'] ?? ''));
     $pos = trim((string)($_POST['signer_position'] ?? ''));
-    $addr = trim((string)($_POST['signer_address'] ?? ''));
+    $l1 = trim((string)($_POST['addr_line1'] ?? ''));
+    $l2 = trim((string)($_POST['addr_line2'] ?? ''));
+    $city = trim((string)($_POST['addr_city'] ?? ''));
+    $region = trim((string)($_POST['addr_region'] ?? ''));
+    $postal = trim((string)($_POST['addr_postal'] ?? ''));
+    $country = trim((string)($_POST['addr_country'] ?? ''));
+    $nm = Util::mergeSignerName($fn, $ln);
+    $addr = Util::mergeSignerAddressParts($l1, $l2, $city, $region, $postal, $country);
     $amtRaw = trim((string)($_POST['commitment_amount'] ?? ''));
     $amt = (float)str_replace([',', ' '], '', $amtRaw);
     $errs = [];
-    if ($nm === '' || $pos === '' || $addr === '') {
-      $errs[] = 'Please complete name, position, and address.';
+    if ($fn === '' || $ln === '') {
+      $errs[] = 'Please enter your first and last name.';
+    }
+    if ($pos === '') {
+      $errs[] = 'Please enter your position or title.';
+    }
+    if ($l1 === '' || $city === '' || $region === '' || $postal === '') {
+      $errs[] = 'Please complete address line 1, city, state/province, and postal code.';
+    }
+    if ($addr === '') {
+      $errs[] = 'Please complete your mailing address.';
     }
     if (!is_finite($amt) || $amt <= 0) {
       $errs[] = 'Enter a valid commitment amount greater than zero.';
@@ -81,8 +98,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']))
       exit;
     }
     $_SESSION[$invDraftKey] = [
+      'first_name' => $fn,
+      'last_name' => $ln,
       'name' => $nm,
       'position' => $pos,
+      'addr_line1' => $l1,
+      'addr_line2' => $l2,
+      'addr_city' => $city,
+      'addr_region' => $region,
+      'addr_postal' => $postal,
+      'addr_country' => $country,
       'address' => $addr,
       'commitment_amount' => $amt,
       'currency' => $currency,
@@ -175,7 +200,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']))
       . '<p><strong>Email:</strong> ' . Util::h($email) . '</p>'
       . '<p><strong>Name:</strong> ' . Util::h($name) . '</p>'
       . '<p><strong>Position:</strong> ' . Util::h($pos) . '</p>'
-      . '<p><strong>Address:</strong> ' . Util::h($addr) . '</p>'
+      . '<p><strong>Address:</strong><br>' . nl2br(Util::h($addr), false) . '</p>'
       . '<p><strong>Commitment:</strong> ' . Util::h($currency) . ' ' . Util::h(number_format($camt, 2)) . '</p>'
       . '<p><strong>Signed at (UTC):</strong> ' . Util::h(gmdate('c')) . '</p>';
     file_put_contents($receiptPath, $receiptHtml);
@@ -217,10 +242,28 @@ if (!is_array($draft)) {
   $step = 1;
   $_SESSION[$invStepKey] = 1;
   $prev = $sigRec;
+  [$defFn, $defLn] = Util::splitFullNameForForm($prev ? (string)$prev['signer_name'] : '');
+  $addrP = Util::splitLegacyAddressForForm($prev ? (string)($prev['signer_address'] ?? '') : '');
+  $mergedAddr = Util::mergeSignerAddressParts(
+    $addrP['line1'],
+    $addrP['line2'],
+    $addrP['city'],
+    $addrP['region'],
+    $addrP['postal'],
+    $addrP['country']
+  );
   $_SESSION[$invDraftKey] = [
-    'name' => $prev ? (string)$prev['signer_name'] : '',
+    'first_name' => $defFn,
+    'last_name' => $defLn,
+    'name' => Util::mergeSignerName($defFn, $defLn),
     'position' => $prev ? (string)$prev['signer_position'] : '',
-    'address' => $prev ? (string)$prev['signer_address'] : '',
+    'addr_line1' => $addrP['line1'],
+    'addr_line2' => $addrP['line2'],
+    'addr_city' => $addrP['city'],
+    'addr_region' => $addrP['region'],
+    'addr_postal' => $addrP['postal'],
+    'addr_country' => $addrP['country'],
+    'address' => $mergedAddr,
     'commitment_amount' => 0.0,
     'currency' => $currency,
     'free_text' => [],
@@ -230,6 +273,33 @@ if (!is_array($draft)) {
     $_SESSION[$invDraftKey]['commitment_amount'] = (float)$existingC['committed_amount'];
   }
   $draft = $_SESSION[$invDraftKey];
+}
+
+if (is_array($draft)) {
+  if (!isset($draft['first_name']) && isset($draft['name'])) {
+    [$f0, $l0] = Util::splitFullNameForForm((string)$draft['name']);
+    $draft['first_name'] = $f0;
+    $draft['last_name'] = $l0;
+  }
+  if (!isset($draft['addr_line1']) && isset($draft['address'])) {
+    $legacy = Util::splitLegacyAddressForForm((string)$draft['address']);
+    $draft['addr_line1'] = $legacy['line1'];
+    $draft['addr_line2'] = $legacy['line2'];
+    $draft['addr_city'] = $legacy['city'];
+    $draft['addr_region'] = $legacy['region'];
+    $draft['addr_postal'] = $legacy['postal'];
+    $draft['addr_country'] = $legacy['country'];
+  }
+  $draft['name'] = Util::mergeSignerName((string)($draft['first_name'] ?? ''), (string)($draft['last_name'] ?? ''));
+  $draft['address'] = Util::mergeSignerAddressParts(
+    (string)($draft['addr_line1'] ?? ''),
+    (string)($draft['addr_line2'] ?? ''),
+    (string)($draft['addr_city'] ?? ''),
+    (string)($draft['addr_region'] ?? ''),
+    (string)($draft['addr_postal'] ?? ''),
+    (string)($draft['addr_country'] ?? '')
+  );
+  $_SESSION[$invDraftKey] = $draft;
 }
 
 if ($step < 1) {
@@ -253,10 +323,16 @@ $cancelHref = 'index.php?p=' . urlencode($projectToken) . ($accessToken !== '' ?
 if ($step === 1) {
   renderHeader('Funding commitment');
   renderAnalyticsTracker($projectToken, 'invest_step1', $email);
-  $dn = Util::h((string)($draft['name'] ?? ''));
   $dp = Util::h((string)($draft['position'] ?? ''));
-  $da = Util::h((string)($draft['address'] ?? ''));
   $dc = Util::h((string)($draft['commitment_amount'] ?? '0'));
+  $dFn = Util::h((string)($draft['first_name'] ?? ''));
+  $dLn = Util::h((string)($draft['last_name'] ?? ''));
+  $dL1 = Util::h((string)($draft['addr_line1'] ?? ''));
+  $dL2 = Util::h((string)($draft['addr_line2'] ?? ''));
+  $dCity = Util::h((string)($draft['addr_city'] ?? ''));
+  $dReg = Util::h((string)($draft['addr_region'] ?? ''));
+  $dZip = Util::h((string)($draft['addr_postal'] ?? ''));
+  $dCtry = Util::h((string)($draft['addr_country'] ?? ''));
   $minHint = ($minCommit !== null && $minCommit > 0)
     ? '<p class="muted" style="font-size:.875em">Minimum: ' . Util::h($currency) . ' ' . Util::h(number_format((float)$minCommit, 2)) . '</p>'
     : '';
@@ -265,17 +341,39 @@ if ($step === 1) {
   echo '<p class="gds-lead">Confirm your details and enter the amount you are committing to this opportunity.</p>';
   echo '<p class="gds-lead"><a href="' . Util::h($cancelHref) . '" class="muted">← Back to files</a></p>';
   echo '<div class="stepper"><span class="step active"><span class="num">1</span>Details</span><span class="step"><span class="num">2</span>Review</span><span class="step"><span class="num">3</span>Sign</span></div>';
-  echo '<form method="post">';
+  echo '<form method="post" class="gds-inv-detail-form">';
   echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="inv_step1" />';
+
+  echo '<div class="gds-form-section">';
+  echo '<div class="gds-section-title">Your name</div>';
   echo '<div class="row">';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_name">Full name</label><input id="inv_name" name="signer_name" required value="' . $dn . '" autocomplete="name" /></div>';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_pos">Position / title</label><input id="inv_pos" name="signer_position" required value="' . $dp . '" autocomplete="organization-title" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_fn">First name</label><input id="inv_fn" name="signer_first_name" type="text" required value="' . $dFn . '" autocomplete="given-name" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_ln">Last name</label><input id="inv_ln" name="signer_last_name" type="text" required value="' . $dLn . '" autocomplete="family-name" /></div>';
   echo '</div>';
-  echo '<div class="gds-field"><label class="gds-label" for="inv_addr">Address</label><textarea id="inv_addr" name="signer_address" rows="3" required autocomplete="street-address">' . $da . '</textarea></div>';
+  echo '<div class="gds-field"><label class="gds-label" for="inv_pos">Position / title</label><input id="inv_pos" name="signer_position" type="text" required value="' . $dp . '" autocomplete="organization-title" /></div>';
+  echo '</div>';
+
+  echo '<div class="gds-form-section">';
+  echo '<div class="gds-section-title">Mailing address</div>';
+  echo '<div class="gds-field"><label class="gds-label" for="inv_a1">Address line 1</label><input id="inv_a1" name="addr_line1" type="text" required value="' . $dL1 . '" autocomplete="address-line1" placeholder="Street address, P.O. box" /></div>';
+  echo '<div class="gds-field"><label class="gds-label" for="inv_a2">Address line 2 <span class="muted" style="font-weight:500">(optional)</span></label><input id="inv_a2" name="addr_line2" type="text" value="' . $dL2 . '" autocomplete="address-line2" placeholder="Apartment, suite, unit" /></div>';
+  echo '<div class="row">';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_city">City</label><input id="inv_city" name="addr_city" type="text" required value="' . $dCity . '" autocomplete="address-level2" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_reg">State / province</label><input id="inv_reg" name="addr_region" type="text" required value="' . $dReg . '" autocomplete="address-level1" /></div>';
+  echo '</div>';
+  echo '<div class="row">';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_zip">ZIP / postal code</label><input id="inv_zip" name="addr_postal" type="text" required value="' . $dZip . '" autocomplete="postal-code" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_ctry">Country <span class="muted" style="font-weight:500">(optional)</span></label><input id="inv_ctry" name="addr_country" type="text" value="' . $dCtry . '" autocomplete="country-name" /></div>';
+  echo '</div>';
+  echo '</div>';
+
+  echo '<div class="gds-form-section">';
   echo '<div class="gds-field"><label class="gds-label" for="inv_amt">Commitment amount (' . Util::h($currency) . ')</label>';
   echo '<input id="inv_amt" name="commitment_amount" type="text" inputmode="decimal" required value="' . $dc . '" placeholder="50000" /></div>';
   echo $minHint;
+  echo '</div>';
+
   echo '<div class="gds-actions"><button type="submit" class="btn btn-primary">Continue</button></div>';
   echo '</form></div>';
   renderFooter();
@@ -598,6 +696,27 @@ echo <<<'INV3'
     const y = h - (Number(d.y) * h) - boxH;
     return { x, y, w: boxW, h: boxH };
   }
+  function drawAddressBlock(page, text, box, font, rgbColor) {
+    const raw = String(text || "").replace(/\r/g, "").split("\n").map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => s.length > 0);
+    if (raw.length === 0) return;
+    let fontSize = Math.max(7, Math.min(12, box.h * 0.2));
+    const lineHeight = fontSize * 1.22;
+    const maxLines = Math.max(1, Math.floor((box.h - 6) / lineHeight));
+    const lines = raw.slice(0, maxLines);
+    let baseline = box.y + box.h - 4 - fontSize;
+    for (const line of lines) {
+      if (baseline < box.y + 2) break;
+      page.drawText(line, {
+        x: box.x + 3,
+        y: baseline,
+        size: fontSize,
+        font,
+        color: rgbColor,
+        maxWidth: Math.max(0, box.w - 6),
+      });
+      baseline -= lineHeight;
+    }
+  }
   async function generateInvSignedPdf(signatureDataUrl) {
     const name = (document.querySelector('input[name="signer_name"]') || {}).value || "";
     const position = (document.querySelector('input[name="signer_position"]') || {}).value || "";
@@ -636,7 +755,7 @@ echo <<<'INV3'
         if (key === "signed_date") text = dateStr;
         if (key === "signer_name") text = name;
         if (key === "signer_position") text = position;
-        if (key === "signer_address") text = address.replace(/\s+/g, " ").trim();
+        if (key === "signer_address") text = address.replace(/\r\n/g, "\n").trim();
         if (key === "commitment_amount") text = (cur && amt) ? (cur + " " + amt) : amt;
         if (key === "free_text") {
           const id = String(def.id || "");
@@ -644,15 +763,21 @@ echo <<<'INV3'
           text = el ? (el.value || "") : "";
         }
         if (!text) continue;
-        const fontSize = Math.max(9, Math.min(14, box.h * 0.65));
-        page.drawText(text, {
-          x: box.x + 3,
-          y: box.y + Math.max(2, (box.h - fontSize) / 2),
-          size: fontSize,
-          font,
-          color: pdfLib.rgb(0.07, 0.09, 0.12),
-          maxWidth: Math.max(0, box.w - 6),
-        });
+        const box = toPdfCoords(page, def);
+        const rgbColor = pdfLib.rgb(0.07, 0.09, 0.12);
+        if (key === "signer_address") {
+          drawAddressBlock(page, text, box, font, rgbColor);
+        } else {
+          const fontSize = Math.max(9, Math.min(14, box.h * 0.65));
+          page.drawText(text.replace(/\s+/g, " ").trim(), {
+            x: box.x + 3,
+            y: box.y + Math.max(2, (box.h - fontSize) / 2),
+            size: fontSize,
+            font,
+            color: rgbColor,
+            maxWidth: Math.max(0, box.w - 6),
+          });
+        }
       }
     }
     return await doc.save();
