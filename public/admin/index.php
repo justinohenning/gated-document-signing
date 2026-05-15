@@ -37,10 +37,11 @@ if ($view === 'login') {
     }
   }
 
-  adminHeader('Sign in');
-  echo '<div class="card">';
-  echo '<h2 class="gds-page-title">Sign in</h2>';
-  echo '<p class="gds-lead">Use your administrator email and password.</p>';
+  adminHeader('Sign in', true);
+  echo '<div class="gds-login-shell">';
+  echo '<div class="card gds-login-card">';
+  echo '<h2 class="gds-page-title" style="margin-bottom:var(--gds-space-2)">Sign in</h2>';
+  echo '<p class="gds-lead" style="margin-bottom:var(--gds-space-4)">Use your administrator email and password.</p>';
   if ($error !== '') echo '<div class="err gds-flash"><strong>' . Util::h($error) . '</strong></div>';
   echo '<form method="post">';
   echo Auth::csrfFieldHtml();
@@ -48,8 +49,9 @@ if ($view === 'login') {
   echo '<input id="admin_login_email" name="email" type="email" required autocomplete="username" /></div>';
   echo '<div class="gds-field"><label class="gds-label" for="admin_login_password">Password</label>';
   echo '<input id="admin_login_password" name="password" type="password" required autocomplete="current-password" /></div>';
-  echo '<div class="gds-actions"><button type="submit" class="btn btn-primary">Sign in</button></div>';
+  echo '<div class="gds-actions"><button type="submit" class="btn btn-primary" style="width:100%">Sign in</button></div>';
   echo '</form>';
+  echo '</div>';
   echo '</div>';
   adminFooter();
   exit;

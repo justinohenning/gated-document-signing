@@ -38,6 +38,41 @@ body.gds-app--admin .gds-page-title + .gds-lead {
   margin-top: calc(-1 * var(--gds-space-2));
 }
 
+/* ── Admin login screen ───────────────────────────────────────── */
+body.gds-app--admin-bare .gds-topbar {
+  justify-content: center;
+  border-bottom: none;
+}
+
+body.gds-app--admin-bare .gds-brand {
+  justify-content: center;
+}
+
+body.gds-app--admin-bare main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 180px);
+  padding: var(--gds-space-5) var(--gds-space-4);
+}
+
+.gds-login-shell {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gds-login-card {
+  width: 100%;
+  max-width: 380px;
+  margin: 0 auto;
+}
+
+body.gds-app--admin-bare .gds-login-card {
+  margin-bottom: 0;
+}
+
 /* ── Analytics: user timeline ──────────────────────────────────── */
 .gds-ua-grid {
   display: grid;

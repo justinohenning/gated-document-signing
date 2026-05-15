@@ -26,7 +26,7 @@ try {
   Startup::failBootstrap($e, $config);
 }
 
-function adminHeader(string $title): void {
+function adminHeader(string $title, bool $bare = false): void {
   $b = $GLOBALS['gds_branding'] ?? [];
   $appName = Util::h((string)($b['app_name'] ?? 'Gated Document Signing'));
   $aTag = Util::h((string)($b['admin_tagline'] ?? 'Administrator'));
@@ -57,6 +57,14 @@ function adminHeader(string $title): void {
     time(),
   );
   $cssHref = Util::h('stylesheet.php?v=' . $cssV);
+  $bodyClass = 'gds-app gds-app--admin' . ($bare ? ' gds-app--admin-bare' : '');
+  $nav = $bare ? '' : '<nav class="gds-admin-nav" aria-label="Admin navigation">
+        <a href="index.php"' . $navClass($navDash) . '>Dashboard</a>
+        <a href="index.php?view=analytics"' . $navClass($navAnalytics) . '>Analytics</a>
+        <a href="index.php?view=admins"' . $navClass($navAdmins) . '>Admins</a>
+        <a href="index.php?view=branding"' . $navClass($navBranding) . '>White label</a>
+        <a href="index.php?view=logout">Logout</a>
+      </nav>';
   echo '<!doctype html>
 <html lang="en">
 <head>
@@ -65,7 +73,7 @@ function adminHeader(string $title): void {
   <title>' . $pageTitle . '</title>
   <link rel="stylesheet" href="' . $cssHref . '" />
 </head>
-<body class="gds-app gds-app--admin">
+<body class="' . $bodyClass . '">
   <div class="gds-wrap">
     <header class="gds-topbar' . $topbarLogoClass . '" role="banner">
       <div class="gds-brand">
@@ -75,13 +83,7 @@ function adminHeader(string $title): void {
           <div class="gds-product-tag">' . $aTag . '</div>
         </div>
       </div>
-      <nav class="gds-admin-nav" aria-label="Admin navigation">
-        <a href="index.php"' . $navClass($navDash) . '>Dashboard</a>
-        <a href="index.php?view=analytics"' . $navClass($navAnalytics) . '>Analytics</a>
-        <a href="index.php?view=admins"' . $navClass($navAdmins) . '>Admins</a>
-        <a href="index.php?view=branding"' . $navClass($navBranding) . '>White label</a>
-        <a href="index.php?view=logout">Logout</a>
-      </nav>
+      ' . $nav . '
     </header>
     <main>
 ';
