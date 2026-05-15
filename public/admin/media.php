@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/src/Thumbnails.php';
 
 Auth::requireAdmin();
 
@@ -75,113 +76,11 @@ function sendBytes(string $path, string $contentType, string $dispName): void {
 }
 
 function ensureXlsxPreviewPdf(array $config, Projects $projects, int $projectId, int $fileId, string $storedPath, string $originalName): ?string {
-  $profile = Util::projectFilePreviewProfile($originalName);
-  if ($profile === null || $profile['kind'] !== 'sheet') {
-    return null;
-  }
-  $dirs = $projects->ensureProjectDirs($projectId);
-  $prevDir = rtrim((string)$dirs['project'], '/') . '/previews';
-  if (!is_dir($prevDir)) {
-    mkdir($prevDir, 0770, true);
-  }
-  $pdfCacheTag = Util::xlsxPdfCacheFilenameSuffix($config);
-  $outPdf = $prevDir . '/file_' . (string)$fileId . $pdfCacheTag . '.pdf';
-  $srcMtime = @filemtime($storedPath) ?: 0;
-  $pdfMtime = @filemtime($outPdf) ?: 0;
-  $needsBuild = !is_file($outPdf) || ($srcMtime > 0 && $srcMtime > $pdfMtime);
-  if (!$needsBuild) {
-    return is_file($outPdf) ? $outPdf : null;
-  }
-  $tmpPdf = $outPdf . '.tmp.' . bin2hex(random_bytes(6));
-  $built = false;
-  $prep = Util::xlsxPathForPdfConversion($storedPath, $originalName, $config);
-  $convPath = $prep['path'];
-  try {
-    $gotenbergUrl = trim((string)($config['gotenberg_url'] ?? ''));
-    if ($gotenbergUrl !== '') {
-      $built = Util::gotenbergLibreofficeConvertToFile($gotenbergUrl, $convPath, $tmpPdf, $config);
-      if (!$built) {
-        $endpoint = rtrim($gotenbergUrl, '/') . '/forms/libreoffice/convert';
-        $landscape = !empty($config['xlsx_pdf_landscape']) ? 'true' : 'false';
-        $singlePageSheets = !empty($config['xlsx_pdf_single_page_sheets']) ? 'true' : 'false';
-        $cmd = 'curl -fsS'
-          . ' -o ' . escapeshellarg($tmpPdf)
-          . ' -F ' . escapeshellarg('files=@' . $convPath)
-          . ' -F ' . escapeshellarg('landscape=' . $landscape)
-          . ' -F ' . escapeshellarg('singlePageSheets=' . $singlePageSheets)
-          . ' ' . escapeshellarg($endpoint);
-        $outLines = [];
-        $rc = 0;
-        @exec($cmd, $outLines, $rc);
-        $built = ($rc === 0 && is_file($tmpPdf) && filesize($tmpPdf) > 1000);
-      }
-    }
-    if (!$built) {
-      $soffice = Util::resolveSofficePath($config);
-      if ($soffice !== '') {
-        $convertFilter = Util::libreOfficeCalcPdfConvertFilter($config);
-        $cmd = Util::libreOfficeEnvPrefix($config)
-          . escapeshellarg($soffice)
-          . ' --headless --nologo --nofirststartwizard --norestore'
-          . ' --convert-to ' . escapeshellarg($convertFilter)
-          . ' --outdir ' . escapeshellarg($prevDir)
-          . ' ' . escapeshellarg($convPath);
-        $outLines = [];
-        $rc = 0;
-        @exec($cmd, $outLines, $rc);
-        $base = pathinfo($convPath, PATHINFO_FILENAME);
-        $loPdf = $prevDir . '/' . $base . '.pdf';
-        if ($rc === 0 && is_file($loPdf) && filesize($loPdf) > 1000) {
-          @rename($loPdf, $tmpPdf);
-          $built = is_file($tmpPdf);
-        }
-      }
-    }
-  } finally {
-    foreach ($prep['unlinks'] as $tmpPath) {
-      if (is_file($tmpPath)) {
-        @unlink($tmpPath);
-      }
-    }
-  }
-  if ($built) {
-    @rename($tmpPdf, $outPdf);
-    return is_file($outPdf) ? $outPdf : null;
-  }
-  @unlink($tmpPdf);
-  return null;
+  return Thumbnails::ensureXlsxPreviewPdf($config, $projects, $projectId, $fileId, $storedPath, $originalName);
 }
 
 function ensurePdfThumbJpeg(array $config, Projects $projects, int $projectId, string $pdfPath, string $thumbKey, int $page): ?string {
-  $dirs = $projects->ensureProjectDirs($projectId);
-  $thumbDir = rtrim((string)$dirs['project'], '/') . '/thumbs/' . $thumbKey;
-  if (!is_dir($thumbDir)) {
-    mkdir($thumbDir, 0770, true);
-  }
-  $out = $thumbDir . '/p' . $page . '.jpg';
-  $srcMtime = @filemtime($pdfPath) ?: 0;
-  $outMtime = @filemtime($out) ?: 0;
-  if (is_file($out) && $srcMtime > 0 && $outMtime >= $srcMtime) {
-    return $out;
-  }
-  // Generate with poppler via Docker to avoid system deps.
-  $img = 'elswork/poppler-utils';
-  $tmpPrefix = $thumbDir . '/_tmp_' . bin2hex(random_bytes(4));
-  $cmd = 'docker run --rm'
-    . ' -v ' . escapeshellarg($pdfPath . ':/in.pdf:ro')
-    . ' -v ' . escapeshellarg($thumbDir . ':/out')
-    . ' ' . escapeshellarg($img)
-    . ' pdftoppm -jpeg -f ' . (int)$page . ' -l ' . (int)$page . ' -singlefile -scale-to 440 /in.pdf /out/' . basename($tmpPrefix);
-  $outLines = [];
-  $rc = 0;
-  @exec($cmd, $outLines, $rc);
-  $tmpJpg = $tmpPrefix . '.jpg';
-  if ($rc === 0 && is_file($tmpJpg) && filesize($tmpJpg) > 1000) {
-    @rename($tmpJpg, $out);
-    return is_file($out) ? $out : null;
-  }
-  @unlink($tmpJpg);
-  return null;
+  return Thumbnails::ensurePdfThumbJpeg($config, $projects, $projectId, $pdfPath, $thumbKey, $page);
 }
 
 if ($mode === 'thumb') {

@@ -265,6 +265,29 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_GET['api']) && $
   exit;
 }
 
+// Rebuild thumbnails: force-regenerate every PDF page (and XLSX preview PDF) cached
+// JPEG used by the analytics hover tooltip. POST { project_id } returns JSON summary.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'rebuild_thumbnails') {
+  require_once dirname(__DIR__, 2) . '/src/Thumbnails.php';
+  header('Content-Type: application/json; charset=utf-8');
+  $pid = (int)($_POST['project_id'] ?? 0);
+  if ($pid <= 0) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'Missing project_id'], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+  @set_time_limit(0);
+  ignore_user_abort(true);
+  try {
+    $summary = Thumbnails::regenerateForProject($config, $projects, $investment, $pid, true);
+    echo json_encode(['ok' => true, 'summary' => $summary], JSON_UNESCAPED_SLASHES);
+  } catch (\Throwable $e) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_SLASHES);
+  }
+  exit;
+}
+
 // Upload NDA
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_nda') {
   $pid = (int)($_POST['project_id'] ?? 0);
@@ -2463,6 +2486,18 @@ HTML;
   } else {
     echo '<p class="gds-help" style="margin-top:var(--gds-space-3);margin-bottom:0">No files uploaded yet.</p>';
   }
+
+  echo '<hr class="gds-divider" />';
+  echo '<div style="margin-top:var(--gds-space-3)">';
+  echo '<div class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Document thumbnails</div>';
+  echo '<p class="gds-help" style="margin-top:0">Regenerates the JPEG previews used by the hover popups in Analytics for every page of the NDA, investment contract, and any PDF or spreadsheet project files. Server-side rendering requires Docker + poppler; spreadsheets also need Gotenberg or LibreOffice.</p>';
+  echo '<div class="gds-actions" style="margin-bottom:var(--gds-space-2)">';
+  echo '<button type="button" class="btn btn-secondary" id="gdsRebuildThumbsBtn" data-project-id="' . (int)$proj['id'] . '" data-csrf="' . Util::h(Auth::csrfToken()) . '">Rebuild thumbnails</button>';
+  echo '<span id="gdsRebuildThumbsStatus" class="muted" style="font-size:var(--gds-text-sm)"></span>';
+  echo '</div>';
+  echo '<div id="gdsRebuildThumbsResult" style="display:none;margin-top:var(--gds-space-2)"></div>';
+  echo '</div>';
+
   echo '</div>';
 
   echo '<div id="panel-settings" class="gds-admin-tab-panel" role="tabpanel" aria-labelledby="tabBtn-settings"' . $panelSettingsHidden . '>';
@@ -2605,6 +2640,8 @@ HTML;
       } elseif ($invEn && $invContract) {
         echo '<span class="muted">No signed contract yet</span>';
       }
+      $analyticsHref = 'index.php?view=analytics_user&project_id=' . (int)$proj['id'] . '&email=' . urlencode($sem);
+      echo '<a class="btn btn-primary gds-btn--compact" href="' . Util::h($analyticsHref) . '">View analytics</a>';
       echo '</div>';
       echo '</div>';
     }
@@ -2872,6 +2909,74 @@ HTML;
     });
   }
   document.querySelectorAll(".dropzone").forEach(wireDropzone);
+
+  const rebuildBtn = document.getElementById("gdsRebuildThumbsBtn");
+  const rebuildStatus = document.getElementById("gdsRebuildThumbsStatus");
+  const rebuildResult = document.getElementById("gdsRebuildThumbsResult");
+  if (rebuildBtn) {
+    rebuildBtn.addEventListener("click", async () => {
+      const projectId = rebuildBtn.getAttribute("data-project-id") || "";
+      const csrfToken = rebuildBtn.getAttribute("data-csrf") || "";
+      if (!projectId) return;
+      rebuildBtn.disabled = true;
+      const originalLabel = rebuildBtn.textContent;
+      rebuildBtn.textContent = "Rebuilding…";
+      if (rebuildStatus) rebuildStatus.textContent = "This may take a minute for large projects.";
+      if (rebuildResult) { rebuildResult.style.display = "none"; rebuildResult.innerHTML = ""; }
+      try {
+        const fd = new FormData();
+        fd.append("_csrf", csrfToken);
+        fd.append("action", "rebuild_thumbnails");
+        fd.append("project_id", projectId);
+        const r = await fetch("index.php", { method: "POST", body: fd, credentials: "same-origin" });
+        const data = await r.json().catch(() => ({ ok: false, error: "Bad response" }));
+        if (!r.ok || !data.ok) {
+          throw new Error(data.error || ("HTTP " + r.status));
+        }
+        const s = data.summary || { files: [], total_pages: 0, total_built: 0, total_failed: 0 };
+        const escMap = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" };
+        const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, m => escMap[m]);
+        let html = "";
+        const totalLine = "Built " + s.total_built + " of " + s.total_pages + " pages"
+          + (s.total_failed > 0 ? (" · " + s.total_failed + " failed") : "");
+        html += "<div class=\"ok gds-flash\" style=\"margin-bottom:8px\"><strong>" + esc(totalLine) + "</strong></div>";
+        if (Array.isArray(s.files) && s.files.length) {
+          html += "<div class=\"gds-table-wrap\"><table style=\"width:100%;font-size:var(--gds-text-sm)\"><thead><tr><th>Document</th><th>Pages</th><th>Built</th><th>Failed</th><th></th></tr></thead><tbody>";
+          for (const f of s.files) {
+            const note = f.error ? ("<span class=\"muted\">" + esc(f.error) + "</span>") : "";
+            const label = esc(f.label || "");
+            const kind = (f.kind === "nda") ? "NDA" : (f.kind === "contract") ? "Contract" : "File";
+            html += "<tr>"
+              + "<td><strong>" + label + "</strong> <span class=\"muted\">" + kind + "</span></td>"
+              + "<td>" + (f.pages || 0) + "</td>"
+              + "<td>" + (f.built || 0) + "</td>"
+              + "<td>" + (f.failed || 0) + "</td>"
+              + "<td>" + note + "</td>"
+              + "</tr>";
+          }
+          html += "</tbody></table></div>";
+        } else {
+          html += "<p class=\"muted\">No PDF or spreadsheet documents to rebuild.</p>";
+        }
+        if (rebuildResult) {
+          rebuildResult.innerHTML = html;
+          rebuildResult.style.display = "block";
+        }
+        if (rebuildStatus) rebuildStatus.textContent = "";
+      } catch (err) {
+        if (rebuildStatus) rebuildStatus.textContent = "";
+        if (rebuildResult) {
+          const m = (err && err.message) ? err.message : String(err);
+          const safe = String(m).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
+          rebuildResult.innerHTML = "<div class=\"err gds-flash\"><strong>Rebuild failed.</strong> " + safe + "</div>";
+          rebuildResult.style.display = "block";
+        }
+      } finally {
+        rebuildBtn.disabled = false;
+        rebuildBtn.textContent = originalLabel;
+      }
+    });
+  }
 })();
   </script>';
   adminFooter();
