@@ -1193,9 +1193,12 @@ if ($view === 'analytics') {
       'nda_sign' => 'Sign NDA',
       'email_gate' => 'Email entry',
       'welcome' => 'Welcome',
+      'invest_step1' => 'Investment · details',
+      'invest_step2' => 'Investment · review',
+      'invest_step3' => 'Investment · sign',
       'invalid_project' => 'Invalid link',
       'missing_project' => 'Missing link',
-      default => $k,
+      default => $k !== '' ? $k : 'Page',
     };
   };
 
@@ -1411,6 +1414,23 @@ if ($view === 'analytics_user') {
     $ndaNameForDrill = (string)$ndaRowDrill['original_name'];
   }
 
+  $pageKeyLabel = static function (string $k): string {
+    return match ($k) {
+      'viewer_file' => 'Document viewer',
+      'viewer_nda' => 'NDA viewer',
+      'files' => 'File list',
+      'nda_sign' => 'Sign NDA',
+      'email_gate' => 'Email entry',
+      'welcome' => 'Welcome',
+      'invest_step1' => 'Investment · details',
+      'invest_step2' => 'Investment · review',
+      'invest_step3' => 'Investment · sign',
+      'invalid_project' => 'Invalid link',
+      'missing_project' => 'Missing link',
+      default => $k !== '' ? $k : 'Page',
+    };
+  };
+
   // Build doc summary (same as overview drilldown, but here in a dedicated page).
   $docParams = [':pid' => $projectId, ':since' => $since, ':cap' => $capMs];
   $docSql = 'SELECT path, SUM(LEAST(duration_ms, :cap)) AS total_ms, COUNT(*) AS views
@@ -1454,13 +1474,217 @@ if ($view === 'analytics_user') {
   $detailDwell = AnalyticsReport::viewerDetailDwellFromEvents($evRows);
   $timeline = AnalyticsReport::buildViewerSessionTimeline($evRows, $capMs);
 
+  // Build session/page-view rollup from analytics_page_views so users who
+  // only visited app screens (email gate, files, NDA signing) still show data.
+  $pvParams = [':pid' => $projectId, ':since' => $since, ':cap' => $capMs];
+  $pvSql = 'SELECT session_id, view_id, page_key, path, started_at, last_heartbeat_at, ended_at,
+                   LEAST(duration_ms, :cap) AS ms, ip_address, user_agent
+            FROM analytics_page_views
+            WHERE project_id = :pid AND started_at >= :since';
+  if ($drillEmail === '(unknown)') {
+    $pvSql .= ' AND signer_email IS NULL';
+  } else {
+    $pvSql .= ' AND signer_email = :dem';
+    $pvParams[':dem'] = strtolower($drillEmail);
+  }
+  $pvSql .= ' ORDER BY started_at ASC LIMIT 1000';
+  $pvRows = $db->fetchAll($pvSql, $pvParams);
+
+  $sumViews = count($pvRows);
+  $sumTotalMs = 0;
+  $sumDays = [];
+  $sumFirstSeen = null;
+  $sumLastSeen = null;
+  $sumLatestIp = '';
+  $sumLatestUa = '';
+  $sumLatestTs = '';
+  $sessionsMap = [];
+  foreach ($pvRows as $r) {
+    $sid = (string)($r['session_id'] ?? '');
+    if ($sid === '') {
+      $sid = 'no_session';
+    }
+    $startedAt = (string)($r['started_at'] ?? '');
+    $endedAt = (string)($r['ended_at'] ?? '');
+    if ($endedAt === '') {
+      $endedAt = (string)($r['last_heartbeat_at'] ?? $startedAt);
+    }
+    $ms = (int)($r['ms'] ?? 0);
+    $sumTotalMs += $ms;
+    if ($startedAt !== '') {
+      $sumDays[substr($startedAt, 0, 10)] = true;
+      if ($sumFirstSeen === null || strcmp($startedAt, $sumFirstSeen) < 0) {
+        $sumFirstSeen = $startedAt;
+      }
+    }
+    if ($endedAt !== '' && ($sumLastSeen === null || strcmp($endedAt, $sumLastSeen) > 0)) {
+      $sumLastSeen = $endedAt;
+    }
+    if ($endedAt !== '' && strcmp($endedAt, $sumLatestTs) > 0) {
+      $sumLatestTs = $endedAt;
+      $sumLatestIp = (string)($r['ip_address'] ?? '');
+      $sumLatestUa = (string)($r['user_agent'] ?? '');
+    }
+    if (!isset($sessionsMap[$sid])) {
+      $sessionsMap[$sid] = [
+        'session_id' => $sid,
+        'started_at' => $startedAt !== '' ? $startedAt : $endedAt,
+        'ended_at' => $endedAt,
+        'total_ms' => 0,
+        'view_count' => 0,
+        'pages' => [],
+        'ip' => (string)($r['ip_address'] ?? ''),
+        'ua' => (string)($r['user_agent'] ?? ''),
+      ];
+    }
+    $entry = &$sessionsMap[$sid];
+    if ($startedAt !== '' && (string)$entry['started_at'] === '' ) {
+      $entry['started_at'] = $startedAt;
+    } elseif ($startedAt !== '' && strcmp($startedAt, (string)$entry['started_at']) < 0) {
+      $entry['started_at'] = $startedAt;
+    }
+    if ($endedAt !== '' && strcmp($endedAt, (string)$entry['ended_at']) > 0) {
+      $entry['ended_at'] = $endedAt;
+    }
+    $entry['total_ms'] += $ms;
+    $entry['view_count']++;
+    $entry['pages'][] = [
+      'page_key' => (string)($r['page_key'] ?? ''),
+      'path' => (string)($r['path'] ?? ''),
+      'started_at' => $startedAt,
+      'ended_at' => $endedAt,
+      'ms' => $ms,
+    ];
+    unset($entry);
+  }
+  $sessionsList = array_values($sessionsMap);
+  usort(
+    $sessionsList,
+    static fn (array $a, array $b): int => strcmp((string)$b['started_at'], (string)$a['started_at'])
+  );
+
+  $msToMin = static function (int $ms): string {
+    if ($ms <= 0) {
+      return '0';
+    }
+    $mins = $ms / 60000;
+    if ($mins >= 1) {
+      return (string)round($mins, 1);
+    }
+    return (string)round($mins, 2);
+  };
+  $msHuman = static function (int $ms): string {
+    if ($ms <= 0) {
+      return '< 1 sec';
+    }
+    $secs = (int)round($ms / 1000);
+    if ($secs < 60) {
+      return $secs . ' sec';
+    }
+    $mins = $secs / 60;
+    if ($mins < 60) {
+      $whole = (int)floor($mins);
+      $remSec = $secs - ($whole * 60);
+      return $remSec > 0 ? ($whole . ' min ' . $remSec . ' sec') : ($whole . ' min');
+    }
+    $hours = $mins / 60;
+    return round($hours, 1) . ' hr';
+  };
+
+  // Top-level summary card.
+  $sumSessions = count($sessionsMap);
+  $sumDayCount = count($sumDays);
+  echo '<div class="card" style="margin-bottom:var(--gds-space-4)">';
+  echo '<h3 style="margin-top:0;margin-bottom:var(--gds-space-3)">Activity summary</h3>';
+  echo '<div class="gds-stat-grid">';
+  echo '<div class="gds-stat-card"><div class="gds-stat-label">Views</div><div class="gds-stat-value">' . (int)$sumViews . '</div></div>';
+  echo '<div class="gds-stat-card"><div class="gds-stat-label">Sessions</div><div class="gds-stat-value">' . (int)$sumSessions . '</div></div>';
+  echo '<div class="gds-stat-card"><div class="gds-stat-label">Active days</div><div class="gds-stat-value">' . (int)$sumDayCount . '</div></div>';
+  echo '<div class="gds-stat-card"><div class="gds-stat-label">Total time (min)</div><div class="gds-stat-value">' . Util::h($msToMin($sumTotalMs)) . '</div></div>';
+  echo '</div>';
+  echo '<div class="row" style="margin-top:var(--gds-space-3);flex-wrap:wrap;gap:var(--gds-space-4)">';
+  echo '<div><div class="muted" style="font-size:var(--gds-text-xs)">First seen (UTC)</div><div>' . Util::h((string)($sumFirstSeen ?? '—')) . '</div></div>';
+  echo '<div><div class="muted" style="font-size:var(--gds-text-xs)">Last seen (UTC)</div><div>' . Util::h((string)($sumLastSeen ?? '—')) . '</div></div>';
+  if ($sumLatestIp !== '') {
+    echo '<div><div class="muted" style="font-size:var(--gds-text-xs)">Last IP address</div><div style="font-family:var(--gds-font-mono,monospace);font-size:var(--gds-text-sm)">' . Util::h($sumLatestIp) . '</div></div>';
+  }
+  if ($sumLatestUa !== '') {
+    echo '<div style="flex:1;min-width:240px"><div class="muted" style="font-size:var(--gds-text-xs)">Last user agent</div><div style="font-size:var(--gds-text-sm);word-break:break-word">' . Util::h($sumLatestUa) . '</div></div>';
+  }
+  echo '</div>';
+  echo '</div>';
+
+  // Sessions card.
+  if ($sessionsList) {
+    echo '<div class="card" style="margin-bottom:var(--gds-space-4)">';
+    echo '<h3 style="margin-top:0;margin-bottom:var(--gds-space-2)">Sessions</h3>';
+    echo '<p class="muted" style="margin:0 0 var(--gds-space-3);font-size:var(--gds-text-sm)">Each session groups page views recorded from the same browser visit (up to 50 most recent).</p>';
+    $renderedSessions = 0;
+    foreach ($sessionsList as $sess) {
+      if ($renderedSessions >= 50) {
+        break;
+      }
+      $renderedSessions++;
+      $startedAt = (string)$sess['started_at'];
+      $endedAt = (string)$sess['ended_at'];
+      $sessMs = (int)$sess['total_ms'];
+      $sessViews = (int)$sess['view_count'];
+      $shortSid = $sess['session_id'] === 'no_session' ? 'unknown' : substr((string)$sess['session_id'], 0, 8);
+
+      echo '<details class="card" style="margin-bottom:var(--gds-space-3);padding:var(--gds-space-3) var(--gds-space-4)">';
+      echo '<summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:var(--gds-space-3);flex-wrap:wrap;align-items:flex-start">';
+      echo '<div>';
+      echo '<div style="font-weight:600">' . Util::h($msHuman($sessMs)) . ' · ' . (int)$sessViews . ' view' . ($sessViews === 1 ? '' : 's') . '</div>';
+      echo '<div class="muted" style="font-size:var(--gds-text-xs);margin-top:2px" title="UTC">' . Util::h($startedAt) . ' → ' . Util::h($endedAt) . '</div>';
+      echo '</div>';
+      echo '<div class="muted" style="font-size:var(--gds-text-xs);text-align:right">';
+      echo 'session ' . Util::h($shortSid);
+      if (($sess['ip'] ?? '') !== '') {
+        echo '<br>IP ' . Util::h((string)$sess['ip']);
+      }
+      echo '</div>';
+      echo '</summary>';
+
+      echo '<div style="margin-top:var(--gds-space-3)">';
+      echo '<div class="gds-table-wrap"><table style="width:100%;font-size:var(--gds-text-sm)"><thead><tr><th>Page</th><th>Started (UTC)</th><th>Time</th></tr></thead><tbody>';
+      $pgs = is_array($sess['pages'] ?? null) ? $sess['pages'] : [];
+      usort($pgs, static fn (array $a, array $b): int => strcmp((string)$a['started_at'], (string)$b['started_at']));
+      foreach ($pgs as $pg) {
+        $pk = (string)($pg['page_key'] ?? '');
+        $label = $pageKeyLabel($pk);
+        $ms = (int)($pg['ms'] ?? 0);
+        $startedRow = (string)($pg['started_at'] ?? '');
+        $pgPath = (string)($pg['path'] ?? '');
+        echo '<tr>';
+        echo '<td><strong>' . Util::h($label) . '</strong>';
+        if ($pgPath !== '' && $pgPath !== ('/' . $pk) && stripos($pgPath, $pk) === false) {
+          echo '<div class="muted" style="font-size:var(--gds-text-xs);word-break:break-all">' . Util::h($pgPath) . '</div>';
+        }
+        echo '</td>';
+        echo '<td class="muted">' . Util::h($startedRow) . '</td>';
+        echo '<td class="muted">' . Util::h($msHuman($ms)) . '</td>';
+        echo '</tr>';
+      }
+      echo '</tbody></table></div>';
+      if (($sess['ua'] ?? '') !== '') {
+        echo '<div class="muted" style="margin-top:var(--gds-space-2);font-size:var(--gds-text-xs);word-break:break-word"><strong>User agent:</strong> ' . Util::h((string)$sess['ua']) . '</div>';
+      }
+      echo '</div>';
+      echo '</details>';
+    }
+    if (count($sessionsList) > 50) {
+      echo '<p class="muted" style="font-size:var(--gds-text-sm)">Showing the 50 most recent sessions. Narrow the date range to see older ones.</p>';
+    }
+    echo '</div>';
+  }
+
   // Timeline UI
   echo '<div class="gds-ua-grid">';
   echo '<div class="card gds-chart-card">';
   echo '<h3 style="margin-bottom:var(--gds-space-2)">Viewer timeline</h3>';
   echo '<p class="muted" style="margin:0 0 var(--gds-space-3);font-size:var(--gds-text-sm)">Sessions are grouped by viewer opens. Segment widths approximate time spent on each PDF page or spreadsheet tab (based on heartbeats).</p>';
 
-  if (!$timeline && !$docMerged && !$detailDwell) {
+  if (!$sumViews && !$timeline && !$docMerged && !$detailDwell) {
     $backToAnalyticsForProject = 'index.php?view=analytics&project_id=' . urlencode((string)$projectId) . '&days=' . urlencode((string)$days);
     echo '<div class="gds-empty">';
     echo '<div class="gds-empty__title">No activity for this user in this project/range.</div>';
@@ -1470,7 +1694,7 @@ if ($view === 'analytics_user') {
     echo '</div>';
     echo '</div>';
   } elseif (!$timeline) {
-    echo '<p class="muted" style="margin:0">No viewer timeline yet for this user in the selected range.</p>';
+    echo '<p class="muted" style="margin:0">This user has not opened a document in the in-app viewer yet (in the selected range). Page activity is shown above.</p>';
   } else {
     echo '<div class="gds-session-list">';
     foreach ($timeline as $s) {
