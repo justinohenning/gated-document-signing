@@ -2935,13 +2935,23 @@ HTML;
         if (!r.ok || !data.ok) {
           throw new Error(data.error || ("HTTP " + r.status));
         }
-        const s = data.summary || { files: [], total_pages: 0, total_built: 0, total_failed: 0 };
+        const s = data.summary || { files: [], total_pages: 0, total_built: 0, total_failed: 0, backends_available: [] };
         const escMap = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" };
         const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, m => escMap[m]);
         let html = "";
         const totalLine = "Built " + s.total_built + " of " + s.total_pages + " pages"
           + (s.total_failed > 0 ? (" · " + s.total_failed + " failed") : "");
-        html += "<div class=\"ok gds-flash\" style=\"margin-bottom:8px\"><strong>" + esc(totalLine) + "</strong></div>";
+        const allFailed = (s.total_pages > 0 && s.total_built === 0);
+        const flashClass = allFailed ? "err" : "ok";
+        html += "<div class=\"" + flashClass + " gds-flash\" style=\"margin-bottom:8px\"><strong>" + esc(totalLine) + "</strong></div>";
+        const backends = Array.isArray(s.backends_available) ? s.backends_available : [];
+        const backendLabel = backends.length
+          ? ("Using: " + backends.join(", "))
+          : "No PDF rendering backend detected. Install one of: Imagick (PHP extension), poppler-utils (pdftoppm), ImageMagick (convert), Ghostscript (gs), or Docker.";
+        html += "<p class=\"muted\" style=\"margin:0 0 12px;font-size:var(--gds-text-sm)\">" + esc(backendLabel) + "</p>";
+        if (allFailed && backends.length) {
+          html += "<p class=\"muted\" style=\"margin:0 0 12px;font-size:var(--gds-text-sm)\">All pages failed despite a detected backend. Check the PHP error log for ImageMagick PDF policy errors or missing Ghostscript delegates.</p>";
+        }
         if (Array.isArray(s.files) && s.files.length) {
           html += "<div class=\"gds-table-wrap\"><table style=\"width:100%;font-size:var(--gds-text-sm)\"><thead><tr><th>Document</th><th>Pages</th><th>Built</th><th>Failed</th><th></th></tr></thead><tbody>";
           for (const f of s.files) {
