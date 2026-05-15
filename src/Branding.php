@@ -26,13 +26,13 @@ final class Branding {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
       [],
     );
+    self::ensureFundingProgressColorColumn($db);
     $db->exec(
       'INSERT INTO app_branding (id, app_name, visitor_tagline, admin_tagline, logo_path, funding_progress_color, updated_at)
        VALUES (1, \'Gated Document Signing\', \'Secure project access\', \'Administrator\', NULL, NULL, UTC_TIMESTAMP())
        ON DUPLICATE KEY UPDATE id = id',
       [],
     );
-    self::ensureFundingProgressColorColumn($db);
   }
 
   private static function ensureFundingProgressColorColumn(Database $db): void {
