@@ -36,12 +36,7 @@ final class Branding {
   }
 
   private static function ensureFundingProgressColorColumn(Database $db): void {
-    $exists = $db->fetchOne(
-      'SELECT 1 AS o FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
-      [':t' => 'app_branding', ':c' => 'funding_progress_color'],
-    );
-    if ($exists !== null) {
+    if ($db->tableHasColumn('app_branding', 'funding_progress_color')) {
       return;
     }
     try {

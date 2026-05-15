@@ -21,6 +21,25 @@ final class Database {
   }
 
   /**
+   * Whether the current database has a column on a table.
+   * Uses SHOW COLUMNS (not information_schema) so hosts that deny SCHEMA metadata still work.
+   *
+   * @param non-empty-string $table
+   * @param non-empty-string $column
+   */
+  public function tableHasColumn(string $table, string $column): bool {
+    if (!preg_match('/^[A-Za-z0-9_]+$/', $table) || !preg_match('/^[A-Za-z0-9_]+$/', $column)) {
+      throw new \InvalidArgumentException('Invalid table or column name.');
+    }
+    $sql = 'SHOW COLUMNS FROM `' . $table . '` LIKE ' . $this->pdo->quote($column);
+    $stmt = $this->pdo->query($sql);
+    if ($stmt === false) {
+      return false;
+    }
+    return $stmt->fetch() !== false;
+  }
+
+  /**
    * Creates core tables when schema.sql was never imported (matches schema.sql order / FKs).
    * Safe to run on every request (IF NOT EXISTS).
    */
@@ -204,12 +223,7 @@ final class Database {
 
   /** Adds sort_order to project_files on older installs (no-op if present). */
   public function ensureProjectFilesSortOrderColumn(): void {
-    $row = $this->fetchOne(
-      'SELECT 1 AS o FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
-      [':t' => 'project_files', ':c' => 'sort_order'],
-    );
-    if ($row !== null) {
+    if ($this->tableHasColumn('project_files', 'sort_order')) {
       return;
     }
     try {
@@ -236,12 +250,7 @@ final class Database {
         ['deleted_at',   'ALTER TABLE project_files ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL AFTER sort_order'],
       ] as [$col, $sql]
     ) {
-      $exists = $this->fetchOne(
-        'SELECT 1 AS o FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
-        [':t' => 'project_files', ':c' => $col],
-      );
-      if ($exists !== null) {
+      if ($this->tableHasColumn('project_files', $col)) {
         continue;
       }
       try {
@@ -346,12 +355,7 @@ final class Database {
 
   /** Add equity_offered_pct to investment_settings on older installs. */
   public function ensureInvestmentSettingsEquityColumn(): void {
-    $exists = $this->fetchOne(
-      'SELECT 1 AS o FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
-      [':t' => 'investment_settings', ':c' => 'equity_offered_pct'],
-    );
-    if ($exists !== null) {
+    if ($this->tableHasColumn('investment_settings', 'equity_offered_pct')) {
       return;
     }
     try {
@@ -374,12 +378,7 @@ final class Database {
         ['desired_currency', 'ALTER TABLE investment_waitlist ADD COLUMN desired_currency VARCHAR(8) NOT NULL DEFAULT \'USD\' AFTER desired_amount'],
       ] as [$col, $sql]
     ) {
-      $exists = $this->fetchOne(
-        'SELECT 1 AS o FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1',
-        [':t' => 'investment_waitlist', ':c' => $col],
-      );
-      if ($exists !== null) {
+      if ($this->tableHasColumn('investment_waitlist', $col)) {
         continue;
       }
       try {
