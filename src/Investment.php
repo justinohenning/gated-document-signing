@@ -124,7 +124,7 @@ final class Investment {
     ];
 
     $slices = [
-      ['key' => 'retained', 'label' => 'Retained by creator', 'pct' => $eqRetained, 'amt' => null],
+      ['key' => 'retained', 'label' => 'Retained', 'pct' => $eqRetained, 'amt' => null],
       ['key' => 'available', 'label' => 'Still available for sale', 'pct' => $eqAvailable, 'amt' => max(0.0, $goalAmount - $totalCommitted)],
       ['key' => 'others', 'label' => 'Committed by others', 'pct' => $eqOthers, 'amt' => $othersCommitted],
       ['key' => 'you', 'label' => 'Your commitment', 'pct' => $eqYou, 'amt' => $myCommitted],
@@ -204,7 +204,6 @@ final class Investment {
       . $svg
       . '<div class="gds-equity-pie__body">'
       . '<ul class="gds-equity-pie__legend">' . $legendRows . '</ul>'
-      . '<p class="gds-equity-pie__note muted">The full circle is the entire company. Only the <strong class="gds-equity-pie__offered">' . $fmtPct($eqOffered) . '</strong> offered slice is for sale, so each commitment buys a share of that slice — not of the whole company.</p>'
       . '</div>'
       . '</div>';
   }
