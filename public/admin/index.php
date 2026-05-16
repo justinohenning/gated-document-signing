@@ -2811,7 +2811,23 @@ HTML;
       echo '<div><span class="muted" style="font-size:var(--gds-text-xs)">Position</span><br>' . Util::h((string)$s['signer_position']) . '</div>';
       echo '<div><span class="muted" style="font-size:var(--gds-text-xs)">IP</span><br>' . Util::h((string)($s['ip_address'] ?? '')) . '</div>';
       echo '</div>';
-      echo '<div class="muted" style="margin-top:var(--gds-space-2);font-size:var(--gds-text-sm)"><strong>Address</strong><br>' . nl2br(Util::h((string)($s['signer_address'] ?? '')), false) . '</div>';
+      $ndaAddrRaw = trim((string)($s['signer_address'] ?? ''));
+      $cmtAddrRaw = $cmt ? trim((string)($cmt['signer_address'] ?? '')) : '';
+      $bestAddr = $cmtAddrRaw !== '' ? $cmtAddrRaw : $ndaAddrRaw;
+      $addrSource = $cmtAddrRaw !== '' ? 'from investment commitment' : 'from NDA';
+      if ($bestAddr !== '') {
+        echo '<div class="gds-visitor-profile__addr">';
+        echo '<div class="gds-visitor-profile__addr-head"><span class="gds-visitor-profile__addr-title">Address</span><span class="muted" style="font-size:var(--gds-text-xs)">' . Util::h($addrSource) . '</span></div>';
+        echo '<address class="gds-visitor-profile__addr-body">' . nl2br(Util::h($bestAddr), false) . '</address>';
+        if ($cmtAddrRaw !== '' && $ndaAddrRaw !== '' && $cmtAddrRaw !== $ndaAddrRaw) {
+          echo '<details class="gds-visitor-profile__addr-alt" style="margin-top:var(--gds-space-2)"><summary class="muted" style="font-size:var(--gds-text-xs);cursor:pointer">Also from NDA</summary>';
+          echo '<address class="gds-visitor-profile__addr-body" style="margin-top:var(--gds-space-2)">' . nl2br(Util::h($ndaAddrRaw), false) . '</address>';
+          echo '</details>';
+        }
+        echo '</div>';
+      } else {
+        echo '<div class="muted" style="margin-top:var(--gds-space-2);font-size:var(--gds-text-sm)"><strong>Address</strong><br>—</div>';
+      }
       if ($amt !== null) {
         echo '<div style="margin-top:var(--gds-space-2)"><span class="muted">Funding commitment:</span> <strong>' . Util::h($cur) . ' ' . Util::h(number_format($amt, 2)) . '</strong>';
         $impAd = $investment->impliedOwnershipPercent($amt, $invSettings);

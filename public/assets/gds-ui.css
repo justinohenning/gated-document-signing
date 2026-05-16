@@ -2211,3 +2211,34 @@ tr:hover .gds-file-rename-btn,
   gap: var(--gds-space-3, 12px);
   margin-top: var(--gds-space-3, 12px);
 }
+
+.gds-visitor-profile__addr {
+  margin-top: var(--gds-space-3, 12px);
+  padding: var(--gds-space-3, 12px);
+  background: var(--gds-surface-subtle);
+  border: 1px solid var(--gds-border);
+  border-radius: var(--gds-radius-md);
+}
+
+.gds-visitor-profile__addr-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gds-space-3, 12px);
+  margin-bottom: var(--gds-space-2, 8px);
+}
+
+.gds-visitor-profile__addr-title {
+  font-weight: 600;
+  font-size: var(--gds-text-sm);
+  color: var(--gds-text);
+}
+
+.gds-visitor-profile__addr-body {
+  font-style: normal;
+  font-size: var(--gds-text-sm);
+  color: var(--gds-text);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  margin: 0;
+}
