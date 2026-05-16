@@ -1323,8 +1323,8 @@ a:hover {
 
 .gds-admin-tabbar {
   display: flex;
-  gap: 4px;
-  padding: var(--gds-space-3) var(--gds-space-4) 0;
+  gap: var(--gds-space-1);
+  padding: var(--gds-space-2) var(--gds-space-3) 0;
   border-bottom: 1px solid var(--gds-border);
   background: var(--gds-surface-subtle);
   flex-wrap: wrap;
@@ -1332,41 +1332,26 @@ a:hover {
 
 .gds-admin-tab {
   appearance: none;
+  border: none;
   background: transparent;
-  border: 1px solid transparent;
-  border-bottom: none;
-  padding: 9px 16px 10px;
+  padding: 10px 14px;
   cursor: pointer;
   font: inherit;
   font-size: var(--gds-text-sm);
   color: var(--gds-muted);
-  border-radius: var(--gds-radius-md) var(--gds-radius-md) 0 0;
+  border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  position: relative;
+  border-radius: var(--gds-radius-md) var(--gds-radius-md) 0 0;
 }
 
 .gds-admin-tab:hover {
   color: var(--gds-text);
-  background: rgba(15, 23, 42, 0.04);
 }
 
 .gds-admin-tab[aria-selected="true"] {
   color: var(--gds-text);
   font-weight: 600;
-  background: var(--gds-surface);
-  border-color: var(--gds-border);
-  box-shadow: 0 -2px 0 0 var(--gds-accent) inset;
-}
-
-.gds-admin-tab[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: -1px;
-  right: -1px;
-  bottom: -1px;
-  height: 2px;
-  background: var(--gds-surface);
-  pointer-events: none;
+  border-bottom-color: var(--gds-accent);
 }
 
 .gds-admin-tab:focus-visible {
@@ -1376,37 +1361,6 @@ a:hover {
 
 .gds-admin-tab-panel {
   padding: var(--gds-space-4) var(--gds-space-5);
-  background: var(--gds-surface);
-}
-
-.gds-visitor-profile__addr {
-  margin-top: var(--gds-space-3);
-  padding: var(--gds-space-3);
-  background: var(--gds-surface-subtle);
-  border: 1px solid var(--gds-border);
-  border-radius: var(--gds-radius-md);
-}
-
-.gds-visitor-profile__addr-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--gds-space-3);
-  margin-bottom: var(--gds-space-2);
-}
-
-.gds-visitor-profile__addr-title {
-  font-weight: 600;
-  font-size: var(--gds-text-sm);
-  color: var(--gds-text);
-}
-
-.gds-visitor-profile__addr-body {
-  font-style: normal;
-  font-size: var(--gds-text-sm);
-  color: var(--gds-text);
-  line-height: 1.45;
-  white-space: pre-wrap;
 }
 
 .gds-logo-preview {
