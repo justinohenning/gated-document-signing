@@ -2061,6 +2061,41 @@ tr:hover .gds-file-rename-btn,
   line-height: 1.45;
 }
 
+.gds-equity-pie__cat {
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.gds-alloc-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gds-space-2);
+  margin-top: var(--gds-space-2);
+}
+
+.gds-alloc-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 2fr) 90px auto;
+  gap: var(--gds-space-2);
+  align-items: center;
+}
+
+.gds-alloc-row select,
+.gds-alloc-row input {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .gds-alloc-row {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+  .gds-alloc-row .gds-alloc-remove {
+    grid-column: 2 / 3;
+    justify-self: end;
+  }
+}
+
 .gds-modal {
   position: fixed;
   inset: 0;

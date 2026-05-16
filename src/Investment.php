@@ -81,11 +81,13 @@ final class Investment {
    * Returns full HTML (chart + legend) or '' when the inputs aren't enough to draw it.
    *
    * Slices, going clockwise from the top:
-   *   1. Retained by creator (= 100 − equity_offered_pct)
-   *   2. Available for sale (= remainder of the offered slice)
-   *   3. Committed by others
-   *   4. Your commitment
+   *   1. Retained (= 100 − equity_offered_pct − sum(allocations))
+   *   2. Each allocation in order (carved out of retained)
+   *   3. Available for sale (= remainder of the offered slice)
+   *   4. Committed by others
+   *   5. Your commitment
    *
+   * @param list<array<string,mixed>> $allocations Each {category,label,percent} carves a slice out of retained.
    * @param string|null $brandColor optional CSS color used for "Your commitment" highlight
    */
   public static function equityPieSvg(
@@ -95,6 +97,7 @@ final class Investment {
     float $myCommitted,
     string $currency,
     ?string $brandColor = null,
+    array $allocations = [],
   ): string {
     if (!is_finite($equityOfferedPct) || $equityOfferedPct <= 0 || $equityOfferedPct > 100) {
       return '';
@@ -107,7 +110,40 @@ final class Investment {
     $othersCommitted = max(0.0, $totalCommitted - $myCommitted);
 
     $eqOffered = max(0.0, min(100.0, $equityOfferedPct));
-    $eqRetained = max(0.0, 100.0 - $eqOffered);
+
+    $cats = self::allocationCategories();
+    $allocSlices = [];
+    $allocTotal = 0.0;
+    $allocIdx = 0;
+    foreach ($allocations as $alloc) {
+      if (!is_array($alloc)) {
+        continue;
+      }
+      $pct = (float)($alloc['percent'] ?? 0);
+      if (!is_finite($pct) || $pct <= 0) {
+        continue;
+      }
+      $catKey = (string)($alloc['category'] ?? 'other');
+      if (!isset($cats[$catKey])) {
+        $catKey = 'other';
+      }
+      $label = trim((string)($alloc['label'] ?? ''));
+      if ($label === '') {
+        $label = $cats[$catKey]['label'];
+      }
+      $allocSlices[] = [
+        'key' => 'alloc_' . $allocIdx++,
+        'label' => $label,
+        'pct' => $pct,
+        'amt' => null,
+        'color' => $cats[$catKey]['color'],
+        'category' => $catKey,
+        'category_label' => $cats[$catKey]['label'],
+      ];
+      $allocTotal += $pct;
+    }
+    $allocTotal = min($allocTotal, max(0.0, 100.0 - $eqOffered));
+    $eqRetained = max(0.0, 100.0 - $eqOffered - $allocTotal);
 
     $eqYou = ($myCommitted / $goalAmount) * $eqOffered;
     $eqOthers = ($othersCommitted / $goalAmount) * $eqOffered;
@@ -123,12 +159,14 @@ final class Investment {
       'you' => $brand,
     ];
 
-    $slices = [
-      ['key' => 'retained', 'label' => 'Retained', 'pct' => $eqRetained, 'amt' => null],
-      ['key' => 'available', 'label' => 'Still available for sale', 'pct' => $eqAvailable, 'amt' => max(0.0, $goalAmount - $totalCommitted)],
-      ['key' => 'others', 'label' => 'Committed by others', 'pct' => $eqOthers, 'amt' => $othersCommitted],
-      ['key' => 'you', 'label' => 'Your commitment', 'pct' => $eqYou, 'amt' => $myCommitted],
-    ];
+    $slices = [];
+    $slices[] = ['key' => 'retained', 'label' => 'Retained', 'pct' => $eqRetained, 'amt' => null];
+    foreach ($allocSlices as $a) {
+      $slices[] = $a;
+    }
+    $slices[] = ['key' => 'available', 'label' => 'Still available for sale', 'pct' => $eqAvailable, 'amt' => max(0.0, $goalAmount - $totalCommitted)];
+    $slices[] = ['key' => 'others', 'label' => 'Committed by others', 'pct' => $eqOthers, 'amt' => $othersCommitted];
+    $slices[] = ['key' => 'you', 'label' => 'Your commitment', 'pct' => $eqYou, 'amt' => $myCommitted];
 
     $cx = 90.0;
     $cy = 90.0;
@@ -137,8 +175,8 @@ final class Investment {
     $startDeg = 0.0;
     foreach ($slices as $s) {
       $pct = (float)$s['pct'];
-      $color = $colors[$s['key']] ?? '#999';
       $key = (string)$s['key'];
+      $color = isset($s['color']) ? (string)$s['color'] : ($colors[$key] ?? '#999');
       $d = '';
       if ($pct > 0.0001) {
         $sweep = ($pct / 100.0) * 360.0;
@@ -178,27 +216,38 @@ final class Investment {
 
     $legendRows = '';
     foreach ($slices as $s) {
-      $color = $colors[$s['key']] ?? '#999';
+      $key = (string)$s['key'];
+      $color = isset($s['color']) ? (string)$s['color'] : ($colors[$key] ?? '#999');
       $pct = (float)$s['pct'];
       $amt = $s['amt'];
-      $key = (string)$s['key'];
       $hasAmtRow = ($amt !== null);
       $amtText = $hasAmtRow ? $fmtAmt((float)$amt) : '';
       $amtStyle = ($hasAmtRow && $pct > 0) ? '' : ';display:none';
       $amtHtml = '<span class="gds-equity-pie__amt" data-key="' . Util::h($key) . '" style="' . $amtStyle . '">' . $amtText . '</span>';
+      $catLabel = isset($s['category_label']) ? (string)$s['category_label'] : '';
+      $labelHtml = Util::h((string)$s['label']);
+      if ($catLabel !== '') {
+        $labelHtml .= ' <span class="gds-equity-pie__cat muted">(' . Util::h($catLabel) . ')</span>';
+      }
       $legendRows .= '<li class="gds-equity-pie__row" data-key="' . Util::h($key) . '">'
         . '<span class="gds-equity-pie__swatch" style="background:' . Util::h($color) . '"></span>'
-        . '<span class="gds-equity-pie__label">' . Util::h((string)$s['label']) . '</span>'
+        . '<span class="gds-equity-pie__label">' . $labelHtml . '</span>'
         . '<span class="gds-equity-pie__pct" data-key="' . Util::h($key) . '">' . $fmtPct($pct) . '</span>'
         . $amtHtml
         . '</li>';
     }
 
+    $allocsForJs = [];
+    foreach ($allocSlices as $a) {
+      $allocsForJs[] = ['key' => $a['key'], 'pct' => (float)$a['pct']];
+    }
+    $allocJson = htmlspecialchars(json_encode($allocsForJs, JSON_UNESCAPED_SLASHES) ?: '[]', ENT_QUOTES, 'UTF-8');
     $dataAttrs = ' data-eq-offered="' . Util::h(number_format($eqOffered, 4, '.', '')) . '"'
       . ' data-goal-amount="' . Util::h(number_format($goalAmount, 2, '.', '')) . '"'
       . ' data-total-committed="' . Util::h(number_format($totalCommitted, 2, '.', '')) . '"'
       . ' data-my-committed="' . Util::h(number_format($myCommitted, 2, '.', '')) . '"'
-      . ' data-currency="' . Util::h($currency) . '"';
+      . ' data-currency="' . Util::h($currency) . '"'
+      . ' data-allocations="' . $allocJson . '"';
 
     return '<div class="gds-equity-pie"' . $dataAttrs . '>'
       . $svg
@@ -301,6 +350,67 @@ final class Investment {
         continue;
       }
       $this->upsertContractFieldDef($projectId, $def);
+    }
+  }
+
+  /**
+   * Supported allocation categories shown in the admin selector and pie legend.
+   * @return array<string,array{label:string,color:string}>
+   */
+  public static function allocationCategories(): array {
+    return [
+      'early_investor' => ['label' => 'Early investor', 'color' => '#8b5cf6'],
+      'donation' => ['label' => 'Donation', 'color' => '#10b981'],
+      'team' => ['label' => 'Team / employees', 'color' => '#f59e0b'],
+      'advisor' => ['label' => 'Advisor', 'color' => '#14b8a6'],
+      'reserved' => ['label' => 'Reserved / option pool', 'color' => '#64748b'],
+      'partner' => ['label' => 'Strategic partner', 'color' => '#ef4444'],
+      'other' => ['label' => 'Other', 'color' => '#ec4899'],
+    ];
+  }
+
+  /** @return list<array<string,mixed>> */
+  public function listAllocations(int $projectId): array {
+    return $this->db->fetchAll(
+      'SELECT * FROM investment_allocations WHERE project_id = :pid ORDER BY sort_order ASC, id ASC',
+      [':pid' => $projectId],
+    );
+  }
+
+  /** @param list<array<string,mixed>> $items */
+  public function replaceAllocations(int $projectId, array $items): void {
+    $this->db->exec('DELETE FROM investment_allocations WHERE project_id = :pid', [':pid' => $projectId]);
+    $cats = self::allocationCategories();
+    $sortOrder = 0;
+    foreach ($items as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $cat = (string)($item['category'] ?? '');
+      if ($cat === '' || !isset($cats[$cat])) {
+        $cat = 'other';
+      }
+      $label = trim((string)($item['label'] ?? ''));
+      if ($label === '') {
+        continue;
+      }
+      $pctRaw = (string)($item['percent'] ?? '');
+      $pct = (float)str_replace([',', ' '], '', $pctRaw);
+      if (!is_finite($pct) || $pct <= 0) {
+        continue;
+      }
+      $pct = min(100.0, $pct);
+      $this->db->exec(
+        'INSERT INTO investment_allocations (project_id, category, label, percent, sort_order, created_at, updated_at)
+         VALUES (:pid, :cat, :lbl, :pct, :ord, UTC_TIMESTAMP(), UTC_TIMESTAMP())',
+        [
+          ':pid' => $projectId,
+          ':cat' => $cat,
+          ':lbl' => mb_substr($label, 0, 160),
+          ':pct' => $pct,
+          ':ord' => $sortOrder++,
+        ],
+      );
     }
   }
 

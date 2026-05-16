@@ -412,6 +412,7 @@ if ($step === 1) {
     if (isset($GLOBALS['gds_branding']) && is_array($GLOBALS['gds_branding'])) {
       $brandColorStep1 = (string)($GLOBALS['gds_branding']['funding_progress_color'] ?? '');
     }
+    $allocListStep1 = $investment->listAllocations($projectId);
     echo '<div id="inv_step1_pie" data-others-committed="' . Util::h(number_format($othersCommittedStep1, 2, '.', '')) . '">';
     echo Investment::equityPieSvg(
       $eqOfferedStep1,
@@ -420,6 +421,7 @@ if ($step === 1) {
       max(0.0, $myProjected),
       $currency,
       $brandColorStep1 !== '' ? $brandColorStep1 : null,
+      $allocListStep1,
     );
     echo '</div>';
     echo '<script>(function(){'
@@ -427,6 +429,7 @@ if ($step === 1) {
       . 'var pie=wrap.querySelector(".gds-equity-pie");if(!pie)return;'
       . 'var amt=document.getElementById("inv_amt");if(!amt)return;'
       . 'var cx=90,cy=90,r=78;'
+      . 'var allocs=[];try{allocs=JSON.parse(pie.dataset.allocations||"[]")||[];}catch(e){allocs=[];}'
       . 'function fmtPct(p){return p.toFixed(2)+"%";}'
       . 'function fmtAmt(c,a){return c+" "+Math.round(a).toLocaleString();}'
       . 'function arcD(start,sweep){if(sweep<=0.0001)return "";if(sweep>=359.999){return "M "+cx+" "+cy+" m -"+r+" 0 a "+r+" "+r+" 0 1 0 "+(r*2)+" 0 a "+r+" "+r+" 0 1 0 -"+(r*2)+" 0";}'
@@ -435,6 +438,14 @@ if ($step === 1) {
       . 'var x2=cx+r*Math.cos(a2),y2=cy+r*Math.sin(a2);'
       . 'var la=sweep>180?1:0;'
       . 'return "M "+cx.toFixed(3)+" "+cy.toFixed(3)+" L "+x1.toFixed(3)+" "+y1.toFixed(3)+" A "+r+" "+r+" 0 "+la+" 1 "+x2.toFixed(3)+" "+y2.toFixed(3)+" Z";}'
+      . 'function applySlice(key,pct,amount,cur,startDeg){'
+      . 'var sweep=(pct/100)*360;'
+      . 'var p=pie.querySelector(\'path[data-key="\'+key+\'"]\');if(p){p.setAttribute("d",arcD(startDeg,sweep));}'
+      . 'var pc=pie.querySelector(\'.gds-equity-pie__pct[data-key="\'+key+\'"]\');if(pc){pc.textContent=fmtPct(pct);}'
+      . 'var am=pie.querySelector(\'.gds-equity-pie__amt[data-key="\'+key+\'"]\');'
+      . 'if(am){if(amount!==null&&pct>0.0001){am.textContent=fmtAmt(cur,amount);am.style.display="";}else{am.style.display="none";}}'
+      . 'return startDeg+sweep;'
+      . '}'
       . 'function render(){'
       . 'var eqOff=parseFloat(pie.dataset.eqOffered)||0;'
       . 'var goal=parseFloat(pie.dataset.goalAmount)||0;'
@@ -443,20 +454,20 @@ if ($step === 1) {
       . 'var myInput=parseFloat(String(amt.value||"").replace(/[, ]/g,""));'
       . 'if(!isFinite(myInput)||myInput<0)myInput=0;'
       . 'if(goal<=0||eqOff<=0)return;'
+      . 'var allocTotal=0;for(var i=0;i<allocs.length;i++){allocTotal+=parseFloat(allocs[i].pct)||0;}'
+      . 'if(allocTotal>100-eqOff)allocTotal=100-eqOff;'
+      . 'var eqRetained=Math.max(0,100-eqOff-allocTotal);'
       . 'var eqYou=Math.max(0,Math.min(eqOff,(myInput/goal)*eqOff));'
       . 'var eqOthers=Math.max(0,Math.min(eqOff-eqYou,(others/goal)*eqOff));'
       . 'var eqAvail=Math.max(0,eqOff-eqYou-eqOthers);'
-      . 'var eqRetained=Math.max(0,100-eqOff);'
       . 'var totalCommitted=others+myInput;'
       . 'var remainingFunds=Math.max(0,goal-totalCommitted);'
-      . 'var data={retained:{pct:eqRetained,amt:null},available:{pct:eqAvail,amt:remainingFunds},others:{pct:eqOthers,amt:others},you:{pct:eqYou,amt:myInput}};'
-      . 'var order=["retained","available","others","you"];var startDeg=0;'
-      . 'for(var i=0;i<order.length;i++){var k=order[i];var slice=data[k];var sweep=(slice.pct/100)*360;'
-      . 'var p=pie.querySelector(\'path[data-key="\'+k+\'"]\');if(p){p.setAttribute("d",arcD(startDeg,sweep));}'
-      . 'var pc=pie.querySelector(\'.gds-equity-pie__pct[data-key="\'+k+\'"]\');if(pc){pc.textContent=fmtPct(slice.pct);}'
-      . 'var am=pie.querySelector(\'.gds-equity-pie__amt[data-key="\'+k+\'"]\');'
-      . 'if(am){if(slice.amt!==null&&slice.pct>0.0001){am.textContent=fmtAmt(cur,slice.amt);am.style.display="";}else{am.style.display="none";}}'
-      . 'startDeg+=sweep;}'
+      . 'var startDeg=0;'
+      . 'startDeg=applySlice("retained",eqRetained,null,cur,startDeg);'
+      . 'for(var j=0;j<allocs.length;j++){startDeg=applySlice(allocs[j].key,parseFloat(allocs[j].pct)||0,null,cur,startDeg);}'
+      . 'startDeg=applySlice("available",eqAvail,remainingFunds,cur,startDeg);'
+      . 'startDeg=applySlice("others",eqOthers,others,cur,startDeg);'
+      . 'startDeg=applySlice("you",eqYou,myInput,cur,startDeg);'
       . 'pie.dataset.totalCommitted=totalCommitted.toFixed(2);'
       . 'pie.dataset.myCommitted=myInput.toFixed(2);'
       . '}'

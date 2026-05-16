@@ -502,6 +502,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) 
       'min_commitment' => $min,
       'equity_offered_pct' => $eqOffer !== null && is_finite($eqOffer) ? $eqOffer : null,
     ]);
+
+    $allocCats = $_POST['alloc_category'] ?? [];
+    $allocLabels = $_POST['alloc_label'] ?? [];
+    $allocPcts = $_POST['alloc_percent'] ?? [];
+    $allocItems = [];
+    if (is_array($allocCats) && is_array($allocLabels) && is_array($allocPcts)) {
+      $count = max(count($allocCats), count($allocLabels), count($allocPcts));
+      for ($i = 0; $i < $count; $i++) {
+        $allocItems[] = [
+          'category' => (string)($allocCats[$i] ?? ''),
+          'label' => (string)($allocLabels[$i] ?? ''),
+          'percent' => (string)($allocPcts[$i] ?? ''),
+        ];
+      }
+    }
+    $investment->replaceAllocations($pid, $allocItems);
   }
   header('Location: index.php?view=project&project_id=' . urlencode((string)$pid) . '&tab=settings&toast=1');
   exit;
@@ -2693,6 +2709,51 @@ HTML;
   echo '<input id="equity_offered_pct" name="equity_offered_pct" type="text" inputmode="decimal" value="' . Util::h($eqStr) . '" placeholder="30" /></div>';
   echo '</div>';
   echo '<p class="gds-help" style="margin-top:var(--gds-space-2)">If set (for example 30), visitors see an <strong>implied ownership</strong> share: (their commitment ÷ funding goal) × this percentage, capped at this percentage. Leave blank to hide ownership estimates.</p>';
+
+  $allocRows = $investment->listAllocations((int)$proj['id']);
+  $allocCats = Investment::allocationCategories();
+  echo '<div class="gds-allocations" style="margin-top:var(--gds-space-4)">';
+  echo '<div class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Other allocations</div>';
+  echo '<p class="gds-help" style="margin-top:0">Already-spoken-for slices of the company (e.g. early investors, donations, team). These are carved out of the Retained portion on the pie chart for transparency — they don’t change the for-sale slice or anyone’s commitment.</p>';
+  echo '<div id="gdsAllocList" class="gds-alloc-list">';
+  $renderAllocRow = static function (string $cat, string $label, string $pct) use ($allocCats): void {
+    echo '<div class="gds-alloc-row">';
+    echo '<select class="gds-alloc-cat" name="alloc_category[]" aria-label="Category">';
+    foreach ($allocCats as $key => $meta) {
+      $sel = ($cat === $key) ? ' selected' : '';
+      echo '<option value="' . Util::h($key) . '"' . $sel . '>' . Util::h($meta['label']) . '</option>';
+    }
+    echo '</select>';
+    echo '<input class="gds-alloc-label" type="text" name="alloc_label[]" placeholder="e.g. Jane Smith (seed)" value="' . Util::h($label) . '" />';
+    echo '<input class="gds-alloc-pct" type="text" inputmode="decimal" name="alloc_percent[]" placeholder="%" value="' . Util::h($pct) . '" />';
+    echo '<button type="button" class="btn btn-danger gds-btn--compact gds-alloc-remove" aria-label="Remove allocation">&times;</button>';
+    echo '</div>';
+  };
+  foreach ($allocRows as $row) {
+    $rowCat = (string)($row['category'] ?? 'other');
+    if (!isset($allocCats[$rowCat])) {
+      $rowCat = 'other';
+    }
+    $rowLabel = (string)($row['label'] ?? '');
+    $rowPct = (string)($row['percent'] ?? '');
+    $renderAllocRow($rowCat, $rowLabel, $rowPct);
+  }
+  echo '</div>';
+  echo '<div style="margin-top:var(--gds-space-2)"><button type="button" id="gdsAllocAdd" class="btn btn-secondary gds-btn--compact">+ Add allocation</button></div>';
+
+  $tmplCats = '';
+  foreach ($allocCats as $key => $meta) {
+    $tmplCats .= '<option value="' . Util::h($key) . '">' . Util::h($meta['label']) . '</option>';
+  }
+  echo '<template id="gdsAllocTmpl"><div class="gds-alloc-row">';
+  echo '<select class="gds-alloc-cat" name="alloc_category[]" aria-label="Category">' . $tmplCats . '</select>';
+  echo '<input class="gds-alloc-label" type="text" name="alloc_label[]" placeholder="e.g. Jane Smith (seed)" />';
+  echo '<input class="gds-alloc-pct" type="text" inputmode="decimal" name="alloc_percent[]" placeholder="%" />';
+  echo '<button type="button" class="btn btn-danger gds-btn--compact gds-alloc-remove" aria-label="Remove allocation">&times;</button>';
+  echo '</div></template>';
+  echo '<script>(function(){var list=document.getElementById("gdsAllocList");var add=document.getElementById("gdsAllocAdd");var tmpl=document.getElementById("gdsAllocTmpl");if(!list||!add||!tmpl)return;function bindRow(row){var rm=row.querySelector(".gds-alloc-remove");if(rm){rm.addEventListener("click",function(){row.remove();});}}Array.prototype.forEach.call(list.querySelectorAll(".gds-alloc-row"),bindRow);add.addEventListener("click",function(){var clone=tmpl.content.firstElementChild.cloneNode(true);list.appendChild(clone);bindRow(clone);var lbl=clone.querySelector(".gds-alloc-label");if(lbl)lbl.focus();});})();</script>';
+  echo '</div>';
+
   echo '<div class="gds-actions" style="margin-top:var(--gds-space-3)"><button type="submit" class="btn btn-primary">Save investment settings</button></div>';
   echo '</form>';
 

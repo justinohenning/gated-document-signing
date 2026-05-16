@@ -578,6 +578,7 @@ if ($signed) {
       $eqOfferedSet = (float)($invSet['equity_offered_pct'] ?? 0);
       if ($goalAmt > 0 && $eqOfferedSet > 0) {
         $myCommittedAmt = $myCommit ? (float)($myCommit['committed_amount'] ?? 0) : 0.0;
+        $allocList = $investment->listAllocations($projectId);
         echo Investment::equityPieSvg(
           $eqOfferedSet,
           $goalAmt,
@@ -585,6 +586,7 @@ if ($signed) {
           $myCommittedAmt,
           $goalCur,
           $fpHex !== '' ? $fpHex : null,
+          $allocList,
         );
       }
       if ($invClosed) {
