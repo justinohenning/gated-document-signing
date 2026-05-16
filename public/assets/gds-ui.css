@@ -1982,8 +1982,83 @@ tr:hover .gds-file-rename-btn,
 }
 
 .gds-req {
-  color: #b45309;
+  color: #dc2626;
   font-weight: 700;
+  margin-left: 2px;
+}
+
+.gds-equity-pie {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gds-space-4);
+  align-items: center;
+  margin-top: var(--gds-space-4);
+  padding: var(--gds-space-4);
+  background: var(--gds-surface-subtle, #f8fafc);
+  border: 1px solid var(--gds-border);
+  border-radius: var(--gds-radius-md, 12px);
+}
+
+.gds-equity-pie__chart {
+  flex: 0 0 180px;
+  width: 180px;
+  height: 180px;
+}
+
+.gds-equity-pie__body {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.gds-equity-pie__legend {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: var(--gds-space-3);
+  row-gap: var(--gds-space-2);
+  align-items: center;
+}
+
+.gds-equity-pie__row {
+  display: contents;
+}
+
+.gds-equity-pie__swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.gds-equity-pie__label {
+  font-size: var(--gds-text-sm, 0.875rem);
+  color: var(--gds-text);
+}
+
+.gds-equity-pie__pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: var(--gds-text-sm, 0.875rem);
+  text-align: right;
+  color: var(--gds-text);
+}
+
+.gds-equity-pie__amt {
+  grid-column: 2 / 4;
+  font-size: 11px;
+  color: var(--gds-text-muted, #6b7280);
+  margin-top: -2px;
+  margin-bottom: 2px;
+  text-align: right;
+}
+
+.gds-equity-pie__note {
+  margin: var(--gds-space-3) 0 0;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .gds-modal {

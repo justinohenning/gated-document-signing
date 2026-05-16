@@ -76,6 +76,139 @@ final class Investment {
     return min($eqf, max(0.0, $raw));
   }
 
+  /**
+   * Render an SVG pie chart visualising how the funding round maps to company ownership.
+   * Returns full HTML (chart + legend) or '' when the inputs aren't enough to draw it.
+   *
+   * Slices, going clockwise from the top:
+   *   1. Retained by creator (= 100 − equity_offered_pct)
+   *   2. Available for sale (= remainder of the offered slice)
+   *   3. Committed by others
+   *   4. Your commitment
+   *
+   * @param string|null $brandColor optional CSS color used for "Your commitment" highlight
+   */
+  public static function equityPieSvg(
+    float $equityOfferedPct,
+    float $goalAmount,
+    float $totalCommitted,
+    float $myCommitted,
+    string $currency,
+    ?string $brandColor = null,
+  ): string {
+    if (!is_finite($equityOfferedPct) || $equityOfferedPct <= 0 || $equityOfferedPct > 100) {
+      return '';
+    }
+    if (!is_finite($goalAmount) || $goalAmount <= 0) {
+      return '';
+    }
+    $totalCommitted = max(0.0, $totalCommitted);
+    $myCommitted = max(0.0, min($myCommitted, $totalCommitted));
+    $othersCommitted = max(0.0, $totalCommitted - $myCommitted);
+
+    $eqOffered = max(0.0, min(100.0, $equityOfferedPct));
+    $eqRetained = max(0.0, 100.0 - $eqOffered);
+
+    $eqYou = ($myCommitted / $goalAmount) * $eqOffered;
+    $eqOthers = ($othersCommitted / $goalAmount) * $eqOffered;
+    $eqYou = max(0.0, min($eqOffered, $eqYou));
+    $eqOthers = max(0.0, min($eqOffered - $eqYou, $eqOthers));
+    $eqAvailable = max(0.0, $eqOffered - $eqYou - $eqOthers);
+
+    $brand = $brandColor !== null && $brandColor !== '' ? $brandColor : '#1d4ed8';
+    $colors = [
+      'retained' => '#e5e7eb',
+      'available' => '#bfdbfe',
+      'others' => '#3b82f6',
+      'you' => $brand,
+    ];
+
+    $slices = [
+      ['key' => 'retained', 'label' => 'Retained by creator', 'pct' => $eqRetained, 'amt' => null],
+      ['key' => 'available', 'label' => 'Still available for sale', 'pct' => $eqAvailable, 'amt' => max(0.0, $goalAmount - $totalCommitted)],
+      ['key' => 'others', 'label' => 'Committed by others', 'pct' => $eqOthers, 'amt' => $othersCommitted],
+      ['key' => 'you', 'label' => 'Your commitment', 'pct' => $eqYou, 'amt' => $myCommitted],
+    ];
+
+    $cx = 90.0;
+    $cy = 90.0;
+    $r = 78.0;
+    $svgSlices = '';
+    $startDeg = 0.0;
+    foreach ($slices as $s) {
+      $pct = (float)$s['pct'];
+      $color = $colors[$s['key']] ?? '#999';
+      $key = (string)$s['key'];
+      $d = '';
+      if ($pct > 0.0001) {
+        $sweep = ($pct / 100.0) * 360.0;
+        $endDeg = $startDeg + $sweep;
+        if ($pct >= 99.999) {
+          $d = sprintf('M %.3f %.3f m -%.3f 0 a %.3f %.3f 0 1 0 %.3f 0 a %.3f %.3f 0 1 0 -%.3f 0',
+            $cx, $cy, $r, $r, $r, ($r * 2), $r, $r, ($r * 2));
+        } else {
+          $a1 = deg2rad($startDeg - 90.0);
+          $a2 = deg2rad($endDeg - 90.0);
+          $x1 = $cx + $r * cos($a1);
+          $y1 = $cy + $r * sin($a1);
+          $x2 = $cx + $r * cos($a2);
+          $y2 = $cy + $r * sin($a2);
+          $largeArc = $sweep > 180.0 ? 1 : 0;
+          $d = sprintf(
+            'M %.3f %.3f L %.3f %.3f A %.3f %.3f 0 %d 1 %.3f %.3f Z',
+            $cx, $cy, $x1, $y1, $r, $r, $largeArc, $x2, $y2,
+          );
+        }
+        $startDeg = $endDeg;
+      }
+      $svgSlices .= '<path data-key="' . Util::h($key) . '" d="' . $d . '" fill="' . $color . '" stroke="#ffffff" stroke-width="1.5" />';
+    }
+
+    $svg = '<svg class="gds-equity-pie__chart" viewBox="0 0 180 180" role="img" aria-label="Company ownership breakdown">'
+      . $svgSlices
+      . '</svg>';
+
+    $fmtPct = static fn(float $p): string => Util::h(number_format($p, 2)) . '%';
+    $fmtAmt = static function (?float $amt) use ($currency): string {
+      if ($amt === null) {
+        return '';
+      }
+      return Util::h($currency . ' ' . number_format($amt, 0));
+    };
+
+    $legendRows = '';
+    foreach ($slices as $s) {
+      $color = $colors[$s['key']] ?? '#999';
+      $pct = (float)$s['pct'];
+      $amt = $s['amt'];
+      $key = (string)$s['key'];
+      $hasAmtRow = ($amt !== null);
+      $amtText = $hasAmtRow ? $fmtAmt((float)$amt) : '';
+      $amtStyle = ($hasAmtRow && $pct > 0) ? '' : ';display:none';
+      $amtHtml = '<span class="gds-equity-pie__amt" data-key="' . Util::h($key) . '" style="' . $amtStyle . '">' . $amtText . '</span>';
+      $legendRows .= '<li class="gds-equity-pie__row" data-key="' . Util::h($key) . '">'
+        . '<span class="gds-equity-pie__swatch" style="background:' . Util::h($color) . '"></span>'
+        . '<span class="gds-equity-pie__label">' . Util::h((string)$s['label']) . '</span>'
+        . '<span class="gds-equity-pie__pct" data-key="' . Util::h($key) . '">' . $fmtPct($pct) . '</span>'
+        . $amtHtml
+        . '</li>';
+    }
+
+    $dataAttrs = ' data-eq-offered="' . Util::h(number_format($eqOffered, 4, '.', '')) . '"'
+      . ' data-goal-amount="' . Util::h(number_format($goalAmount, 2, '.', '')) . '"'
+      . ' data-total-committed="' . Util::h(number_format($totalCommitted, 2, '.', '')) . '"'
+      . ' data-my-committed="' . Util::h(number_format($myCommitted, 2, '.', '')) . '"'
+      . ' data-currency="' . Util::h($currency) . '"';
+
+    return '<div class="gds-equity-pie"' . $dataAttrs . '>'
+      . $svg
+      . '<div class="gds-equity-pie__body">'
+      . '<ul class="gds-equity-pie__legend">' . $legendRows . '</ul>'
+      . '<p class="gds-equity-pie__note muted">The full circle is the entire company. Only the <strong class="gds-equity-pie__offered">' . $fmtPct($eqOffered) . '</strong> offered slice is for sale, so each commitment buys a share of that slice — not of the whole company.</p>'
+      . '</div>'
+      . '</div>';
+  }
+
   public function saveSettings(int $projectId, array $data): void {
     $enabled = !empty($data['enabled']) ? 1 : 0;
     $goal = max(0.0, (float)($data['goal_amount'] ?? 0));

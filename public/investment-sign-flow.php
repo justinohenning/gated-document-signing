@@ -94,8 +94,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']))
     if ($pos === '') {
       $errs[] = 'Please enter your position or title.';
     }
-    if ($l1 === '' || $l2 === '' || $city === '' || $region === '' || $postal === '' || $country === '') {
-      $errs[] = 'Please complete all address fields (including line 2 and country).';
+    if ($l1 === '' || $city === '' || $region === '' || $postal === '') {
+      $errs[] = 'Please complete address line 1, city, state/province, and postal code.';
     }
     if ($addr === '') {
       $errs[] = 'Please complete your mailing address.';
@@ -365,36 +365,105 @@ if ($step === 1) {
   echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="inv_step1" />';
 
+  $rm = Util::requiredMark();
+  echo '<p class="gds-help" style="margin-bottom:var(--gds-space-3)">Fields marked with <span class="gds-req" aria-hidden="true">*</span> are required.</p>';
   echo '<div class="gds-form-section">';
   echo '<div class="gds-section-title">Your name</div>';
   echo '<div class="row">';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_fn">First name</label><input id="inv_fn" name="signer_first_name" type="text" required value="' . $dFn . '" autocomplete="given-name" /></div>';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_ln">Last name</label><input id="inv_ln" name="signer_last_name" type="text" required value="' . $dLn . '" autocomplete="family-name" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_fn">First name' . $rm . '</label><input id="inv_fn" name="signer_first_name" type="text" required value="' . $dFn . '" autocomplete="given-name" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_ln">Last name' . $rm . '</label><input id="inv_ln" name="signer_last_name" type="text" required value="' . $dLn . '" autocomplete="family-name" /></div>';
   echo '</div>';
-  echo '<div class="gds-field"><label class="gds-label" for="inv_pos">Position / title</label><input id="inv_pos" name="signer_position" type="text" required value="' . $dp . '" autocomplete="organization-title" /></div>';
+  echo '<div class="gds-field"><label class="gds-label" for="inv_pos">Position / title' . $rm . '</label><input id="inv_pos" name="signer_position" type="text" required value="' . $dp . '" autocomplete="organization-title" /></div>';
   echo '</div>';
 
   echo '<div class="gds-form-section">';
   echo '<div class="gds-section-title">Mailing address</div>';
-  echo '<div class="gds-field"><label class="gds-label" for="inv_a1">Address line 1</label><input id="inv_a1" name="addr_line1" type="text" required value="' . $dL1 . '" autocomplete="address-line1" placeholder="Street address, P.O. box" /></div>';
+  echo '<div class="gds-field"><label class="gds-label" for="inv_a1">Address line 1' . $rm . '</label><input id="inv_a1" name="addr_line1" type="text" required value="' . $dL1 . '" autocomplete="address-line1" placeholder="Street address, P.O. box" /></div>';
   echo '<div class="gds-field"><label class="gds-label" for="inv_a2">Address line 2 <span class="muted" style="font-weight:500">(optional)</span></label><input id="inv_a2" name="addr_line2" type="text" value="' . $dL2 . '" autocomplete="address-line2" placeholder="Apartment, suite, unit" /></div>';
   echo '<div class="row">';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_city">City</label><input id="inv_city" name="addr_city" type="text" required value="' . $dCity . '" autocomplete="address-level2" /></div>';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_reg">State / province</label><input id="inv_reg" name="addr_region" type="text" required value="' . $dReg . '" autocomplete="address-level1" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_city">City' . $rm . '</label><input id="inv_city" name="addr_city" type="text" required value="' . $dCity . '" autocomplete="address-level2" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_reg">State / province' . $rm . '</label><input id="inv_reg" name="addr_region" type="text" required value="' . $dReg . '" autocomplete="address-level1" /></div>';
   echo '</div>';
   echo '<div class="row">';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_zip">ZIP / postal code</label><input id="inv_zip" name="addr_postal" type="text" required value="' . $dZip . '" autocomplete="postal-code" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_zip">ZIP / postal code' . $rm . '</label><input id="inv_zip" name="addr_postal" type="text" required value="' . $dZip . '" autocomplete="postal-code" /></div>';
   echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="inv_ctry">Country <span class="muted" style="font-weight:500">(optional)</span></label><input id="inv_ctry" name="addr_country" type="text" value="' . $dCtry . '" autocomplete="country-name" /></div>';
   echo '</div>';
   echo '</div>';
 
   echo '<div class="gds-form-section">';
-  echo '<div class="gds-field"><label class="gds-label" for="inv_amt">Commitment amount (' . Util::h($currency) . ')</label>';
+  echo '<div class="gds-field"><label class="gds-label" for="inv_amt">Commitment amount (' . Util::h($currency) . ')' . $rm . '</label>';
   echo '<input id="inv_amt" name="commitment_amount" type="text" inputmode="decimal" required value="' . $dc . '" placeholder="50000" /></div>';
   echo $minHint;
   echo $invFullGoalHint;
   if ($impStep1 !== null) {
     echo '<p class="gds-lead" style="margin-top:var(--gds-space-2);font-size:1rem">Implied ownership at full goal: <strong>' . Util::h(number_format($impStep1, 2)) . '%</strong></p>';
+  }
+  $eqOfferedStep1 = (float)($invSettings['equity_offered_pct'] ?? 0);
+  $goalAmtStep1 = (float)($invSettings['goal_amount'] ?? 0);
+  if ($eqOfferedStep1 > 0 && $goalAmtStep1 > 0) {
+    $totalCommittedStep1 = (float)$investment->getTotalCommitted($projectId);
+    $existingMine = $investment->getCommitment($projectId, $email);
+    $existingMyAmt = $existingMine ? (float)($existingMine['committed_amount'] ?? 0) : 0.0;
+    $othersCommittedStep1 = max(0.0, $totalCommittedStep1 - $existingMyAmt);
+    $draftAmt = (float)($draft['commitment_amount'] ?? 0);
+    $myProjected = $draftAmt > 0 ? $draftAmt : $existingMyAmt;
+    $projectedTotal = $othersCommittedStep1 + max(0.0, $myProjected);
+    $brandColorStep1 = '';
+    if (isset($GLOBALS['gds_branding']) && is_array($GLOBALS['gds_branding'])) {
+      $brandColorStep1 = (string)($GLOBALS['gds_branding']['funding_progress_color'] ?? '');
+    }
+    echo '<div id="inv_step1_pie" data-others-committed="' . Util::h(number_format($othersCommittedStep1, 2, '.', '')) . '">';
+    echo Investment::equityPieSvg(
+      $eqOfferedStep1,
+      $goalAmtStep1,
+      $projectedTotal,
+      max(0.0, $myProjected),
+      $currency,
+      $brandColorStep1 !== '' ? $brandColorStep1 : null,
+    );
+    echo '</div>';
+    echo '<script>(function(){'
+      . 'var wrap=document.getElementById("inv_step1_pie");if(!wrap)return;'
+      . 'var pie=wrap.querySelector(".gds-equity-pie");if(!pie)return;'
+      . 'var amt=document.getElementById("inv_amt");if(!amt)return;'
+      . 'var cx=90,cy=90,r=78;'
+      . 'function fmtPct(p){return p.toFixed(2)+"%";}'
+      . 'function fmtAmt(c,a){return c+" "+Math.round(a).toLocaleString();}'
+      . 'function arcD(start,sweep){if(sweep<=0.0001)return "";if(sweep>=359.999){return "M "+cx+" "+cy+" m -"+r+" 0 a "+r+" "+r+" 0 1 0 "+(r*2)+" 0 a "+r+" "+r+" 0 1 0 -"+(r*2)+" 0";}'
+      . 'var a1=(start-90)*Math.PI/180,a2=(start+sweep-90)*Math.PI/180;'
+      . 'var x1=cx+r*Math.cos(a1),y1=cy+r*Math.sin(a1);'
+      . 'var x2=cx+r*Math.cos(a2),y2=cy+r*Math.sin(a2);'
+      . 'var la=sweep>180?1:0;'
+      . 'return "M "+cx.toFixed(3)+" "+cy.toFixed(3)+" L "+x1.toFixed(3)+" "+y1.toFixed(3)+" A "+r+" "+r+" 0 "+la+" 1 "+x2.toFixed(3)+" "+y2.toFixed(3)+" Z";}'
+      . 'function render(){'
+      . 'var eqOff=parseFloat(pie.dataset.eqOffered)||0;'
+      . 'var goal=parseFloat(pie.dataset.goalAmount)||0;'
+      . 'var cur=pie.dataset.currency||"";'
+      . 'var others=parseFloat(wrap.dataset.othersCommitted)||0;'
+      . 'var myInput=parseFloat(String(amt.value||"").replace(/[, ]/g,""));'
+      . 'if(!isFinite(myInput)||myInput<0)myInput=0;'
+      . 'if(goal<=0||eqOff<=0)return;'
+      . 'var eqYou=Math.max(0,Math.min(eqOff,(myInput/goal)*eqOff));'
+      . 'var eqOthers=Math.max(0,Math.min(eqOff-eqYou,(others/goal)*eqOff));'
+      . 'var eqAvail=Math.max(0,eqOff-eqYou-eqOthers);'
+      . 'var eqRetained=Math.max(0,100-eqOff);'
+      . 'var totalCommitted=others+myInput;'
+      . 'var remainingFunds=Math.max(0,goal-totalCommitted);'
+      . 'var data={retained:{pct:eqRetained,amt:null},available:{pct:eqAvail,amt:remainingFunds},others:{pct:eqOthers,amt:others},you:{pct:eqYou,amt:myInput}};'
+      . 'var order=["retained","available","others","you"];var startDeg=0;'
+      . 'for(var i=0;i<order.length;i++){var k=order[i];var slice=data[k];var sweep=(slice.pct/100)*360;'
+      . 'var p=pie.querySelector(\'path[data-key="\'+k+\'"]\');if(p){p.setAttribute("d",arcD(startDeg,sweep));}'
+      . 'var pc=pie.querySelector(\'.gds-equity-pie__pct[data-key="\'+k+\'"]\');if(pc){pc.textContent=fmtPct(slice.pct);}'
+      . 'var am=pie.querySelector(\'.gds-equity-pie__amt[data-key="\'+k+\'"]\');'
+      . 'if(am){if(slice.amt!==null&&slice.pct>0.0001){am.textContent=fmtAmt(cur,slice.amt);am.style.display="";}else{am.style.display="none";}}'
+      . 'startDeg+=sweep;}'
+      . 'pie.dataset.totalCommitted=totalCommitted.toFixed(2);'
+      . 'pie.dataset.myCommitted=myInput.toFixed(2);'
+      . '}'
+      . 'amt.addEventListener("input",render);'
+      . 'amt.addEventListener("change",render);'
+      . 'render();'
+      . '})();</script>';
   }
   echo '</div>';
 

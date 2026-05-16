@@ -70,8 +70,15 @@ function makeBox(def) {
   el.style.fontSize = "12px";
   el.style.color = "#111827";
   el.style.userSelect = "none";
-  el.textContent = def.field_label || labelFor(def.field_key);
   el.style.touchAction = "none";
+  const baseLabel = def.field_label || labelFor(def.field_key);
+  const isDynamic = ["signature", "signed_date", "signer_name", "signer_position", "signer_address", "commitment_amount"].indexOf(String(def.field_key)) >= 0;
+  if (isDynamic && def.field_key !== "signature") {
+    el.style.fontStyle = "italic";
+    el.textContent = "{{ " + baseLabel + " }}";
+  } else {
+    el.textContent = baseLabel;
+  }
 
   const handle = document.createElement("div");
   handle.style.position = "absolute";
@@ -205,17 +212,24 @@ function labelFor(k) {
     signer_name: "Name",
     signer_position: "Position",
     signer_address: "Address",
-    commitment_amount: "Commitment",
+    commitment_amount: "Commitment amount",
     free_text: "Free text"
   };
   return m[k] || k;
+}
+
+function defaultSizeFor(k) {
+  if (k === "commitment_amount") return { w: 0.32, h: 0.05 };
+  if (k === "signer_address") return { w: 0.35, h: 0.10 };
+  if (k === "signature") return { w: 0.30, h: 0.10 };
+  return { w: 0.25, h: 0.06 };
 }
 
 function placeNewAt(clientX, clientY) {
   const r = overlay.getBoundingClientRect();
   const x = (clientX - r.left) / r.width;
   const y = (clientY - r.top) / r.height;
-  const base = { w: 0.25, h: 0.06, required: 1 };
+  const base = defaultSizeFor(currentFieldKey);
   const id = "tmp_" + Date.now().toString(36) + "_" + Math.random().toString(16).slice(2);
   let fieldLabel = "";
   let req = 1;

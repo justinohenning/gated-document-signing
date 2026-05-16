@@ -1084,7 +1084,7 @@ if ($view === 'investment_contract') {
   adminHeader('Investment contract fields');
   echo '<div class="card">';
   echo '<div class="gds-page-header">';
-  echo '<div><h2 class="gds-page-title">Place contract fields</h2><p class="gds-lead" style="margin-bottom:0">Drag and resize boxes on the investment contract PDF. Include a <strong>Commitment amount</strong> field if the pledge should appear on the signed PDF.</p></div>';
+  echo '<div><h2 class="gds-page-title">Place contract fields</h2><p class="gds-lead" style="margin-bottom:0">Drag and resize boxes on the investment contract PDF. Fields like <strong>Name</strong>, <strong>Date</strong>, <strong>Address</strong>, and <strong>Commitment amount</strong> are dynamic — they auto-fill with each visitor’s data when they sign.</p></div>';
   echo '<div class="gds-toolbar">';
   echo '<a class="gds-link-back" href="' . Util::h($shareLink) . '">← Back to project</a>';
   echo '<button type="button" class="btn btn-danger gds-btn--compact" id="invRemoveFieldBtn" title="Remove selected field">Remove field</button>';
@@ -1098,19 +1098,24 @@ if ($view === 'investment_contract') {
   echo '<div class="gds-section-title" style="margin-bottom:var(--gds-space-2)">Fields</div>';
   echo '<div id="invFieldsList" class="gds-field-palette">';
   $invFieldLabels = [
-    'signature' => 'Signature',
-    'signed_date' => 'Date',
-    'signer_name' => 'Name',
-    'signer_position' => 'Position',
-    'signer_address' => 'Address',
-    'commitment_amount' => 'Commitment amount',
-    'free_text' => 'Free text',
+    'signature' => ['label' => 'Signature', 'hint' => 'visitor’s drawn signature'],
+    'signed_date' => ['label' => 'Date', 'hint' => 'date of signing'],
+    'signer_name' => ['label' => 'Name', 'hint' => 'visitor’s full name'],
+    'signer_position' => ['label' => 'Position', 'hint' => 'visitor’s title'],
+    'signer_address' => ['label' => 'Address', 'hint' => 'visitor’s address'],
+    'commitment_amount' => ['label' => 'Commitment amount', 'hint' => 'pledged currency + amount'],
+    'free_text' => ['label' => 'Free text', 'hint' => 'visitor types into the box'],
   ];
-  foreach ($invFieldLabels as $k => $label) {
-    echo '<button type="button" class="invFieldBtn fieldBtn" draggable="true" data-key="' . Util::h($k) . '">' . Util::h($label) . '</button>';
+  foreach ($invFieldLabels as $k => $meta) {
+    $label = (string)$meta['label'];
+    $hint = (string)$meta['hint'];
+    echo '<button type="button" class="invFieldBtn fieldBtn" draggable="true" data-key="' . Util::h($k) . '" title="' . Util::h($hint) . '">';
+    echo Util::h($label);
+    echo '<span class="gds-field-hint" style="display:block;font-weight:400;font-size:11px;color:var(--gds-text-muted);margin-top:2px">' . Util::h($hint) . '</span>';
+    echo '</button>';
   }
   echo '</div>';
-  echo '<p class="gds-help" style="margin-top:var(--gds-space-4)">Tip: click a field, then click an <strong>empty</strong> area on the PDF to place it.</p>';
+  echo '<p class="gds-help" style="margin-top:var(--gds-space-4)">Tip: click a field, then click an <strong>empty</strong> area on the PDF to place it. The <strong>Commitment amount</strong> placeholder is replaced with the visitor’s pledge (currency + amount) on the signed PDF.</p>';
   echo '</div>';
 
   echo '<div class="gds-nda-field-main">';

@@ -433,8 +433,8 @@ if ($signed) {
     if (strlen(preg_replace('/\D/', '', $phone)) < 7) {
       $errs[] = 'Please enter a valid phone number.';
     }
-    if ($l1 === '' || $l2 === '' || $city === '' || $region === '' || $postal === '' || $country === '') {
-      $errs[] = 'Please complete all address fields.';
+    if ($l1 === '' || $city === '' || $region === '' || $postal === '') {
+      $errs[] = 'Please complete address line 1, city, state/province, and postal code.';
     }
     if (!is_finite($damt) || $damt <= 0) {
       $errs[] = 'Please enter the amount you hoped to contribute.';
@@ -575,6 +575,18 @@ if ($signed) {
         echo '<div class="' . $barCls . '" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' . (int)round($pct) . '">';
         echo '<div class="gds-investment-bar__fill" style="' . $fillStyle . '"></div></div>';
       }
+      $eqOfferedSet = (float)($invSet['equity_offered_pct'] ?? 0);
+      if ($goalAmt > 0 && $eqOfferedSet > 0) {
+        $myCommittedAmt = $myCommit ? (float)($myCommit['committed_amount'] ?? 0) : 0.0;
+        echo Investment::equityPieSvg(
+          $eqOfferedSet,
+          $goalAmt,
+          (float)$totalCommitted,
+          $myCommittedAmt,
+          $goalCur,
+          $fpHex !== '' ? $fpHex : null,
+        );
+      }
       if ($invClosed) {
         if ($wlFlashOk) {
           echo '<div class="ok gds-flash" style="margin-top:var(--gds-space-3)"><strong>You’re on the list.</strong> We’ll use your details if a spot opens up.</div>';
@@ -622,6 +634,7 @@ if ($signed) {
         echo '<form method="post" action="' . Util::h($wlFormAction) . '" class="gds-sign-detail-form" style="margin-top:0">';
         echo Auth::csrfFieldHtml();
         echo '<input type="hidden" name="action" value="inv_waitlist" />';
+        echo '<p class="gds-help" style="margin-bottom:var(--gds-space-3)">Fields marked with <span class="gds-req" aria-hidden="true">*</span> are required.</p>';
         echo '<div class="gds-field"><label class="gds-label" for="wl_name">Your name' . $rm . '</label>';
         echo '<input id="wl_name" name="waitlist_full_name" type="text" required autocomplete="name" value="' . $wlv($wlOld, 'waitlist_full_name') . '" /></div>';
         echo '<div class="gds-field"><label class="gds-label" for="wl_email">Email address' . $rm . '</label>';
@@ -629,11 +642,11 @@ if ($signed) {
         echo '<div class="gds-field"><label class="gds-label" for="wl_phone">Phone number' . $rm . '</label>';
         echo '<input id="wl_phone" name="waitlist_phone" type="tel" required autocomplete="tel" value="' . $wlv($wlOld, 'waitlist_phone') . '" /></div>';
         echo '<div class="gds-form-section" style="border-bottom:0;padding-bottom:0;margin-bottom:var(--gds-space-3)">';
-        echo '<div class="gds-section-title">Mailing address' . $rm . '</div>';
+        echo '<div class="gds-section-title">Mailing address</div>';
         echo '<div class="gds-field"><label class="gds-label" for="wl_a1">Address line 1' . $rm . '</label>';
         echo '<input id="wl_a1" name="wl_addr_line1" type="text" required autocomplete="address-line1" value="' . $wlv($wlOld, 'wl_addr_line1') . '" /></div>';
-        echo '<div class="gds-field"><label class="gds-label" for="wl_a2">Address line 2' . $rm . '</label>';
-        echo '<input id="wl_a2" name="wl_addr_line2" type="text" required autocomplete="address-line2" value="' . $wlv($wlOld, 'wl_addr_line2') . '" /></div>';
+        echo '<div class="gds-field"><label class="gds-label" for="wl_a2">Address line 2 <span class="muted" style="font-weight:500">(optional)</span></label>';
+        echo '<input id="wl_a2" name="wl_addr_line2" type="text" autocomplete="address-line2" value="' . $wlv($wlOld, 'wl_addr_line2') . '" /></div>';
         echo '<div class="row">';
         echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="wl_city">City' . $rm . '</label>';
         echo '<input id="wl_city" name="wl_addr_city" type="text" required autocomplete="address-level2" value="' . $wlv($wlOld, 'wl_addr_city') . '" /></div>';
@@ -642,8 +655,8 @@ if ($signed) {
         echo '</div><div class="row">';
         echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="wl_zip">ZIP / postal code' . $rm . '</label>';
         echo '<input id="wl_zip" name="wl_addr_postal" type="text" required autocomplete="postal-code" value="' . $wlv($wlOld, 'wl_addr_postal') . '" /></div>';
-        echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="wl_ctry">Country' . $rm . '</label>';
-        echo '<input id="wl_ctry" name="wl_addr_country" type="text" required autocomplete="country-name" value="' . $wlv($wlOld, 'wl_addr_country') . '" /></div>';
+        echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="wl_ctry">Country <span class="muted" style="font-weight:500">(optional)</span></label>';
+        echo '<input id="wl_ctry" name="wl_addr_country" type="text" autocomplete="country-name" value="' . $wlv($wlOld, 'wl_addr_country') . '" /></div>';
         echo '</div></div>';
         echo '<div class="gds-field"><label class="gds-label" for="wl_amt">Amount you hoped to contribute (' . Util::h($goalCur) . ')' . $rm . '</label>';
         echo '<input id="wl_amt" name="waitlist_desired_amount" type="text" inputmode="decimal" required placeholder="25000" value="' . $wlv($wlOld, 'waitlist_desired_amount') . '" /></div>';
@@ -830,25 +843,27 @@ if ($step === 1) {
   echo Auth::csrfFieldHtml();
   echo '<input type="hidden" name="action" value="sign_step1" />';
 
+  $rm = Util::requiredMark();
+  echo '<p class="gds-help" style="margin-bottom:var(--gds-space-3)">Fields marked with <span class="gds-req" aria-hidden="true">*</span> are required.</p>';
   echo '<div class="gds-form-section">';
   echo '<div class="gds-section-title">Your name</div>';
   echo '<div class="row">';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_fn">First name</label><input id="nda_fn" name="signer_first_name" type="text" required value="' . $dFn . '" autocomplete="given-name" /></div>';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_ln">Last name</label><input id="nda_ln" name="signer_last_name" type="text" required value="' . $dLn . '" autocomplete="family-name" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_fn">First name' . $rm . '</label><input id="nda_fn" name="signer_first_name" type="text" required value="' . $dFn . '" autocomplete="given-name" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_ln">Last name' . $rm . '</label><input id="nda_ln" name="signer_last_name" type="text" required value="' . $dLn . '" autocomplete="family-name" /></div>';
   echo '</div>';
-  echo '<div class="gds-field"><label class="gds-label" for="signer_position">Position / title</label><input id="signer_position" name="signer_position" type="text" required value="' . $dp . '" autocomplete="organization-title" /></div>';
+  echo '<div class="gds-field"><label class="gds-label" for="signer_position">Position / title' . $rm . '</label><input id="signer_position" name="signer_position" type="text" required value="' . $dp . '" autocomplete="organization-title" /></div>';
   echo '</div>';
 
   echo '<div class="gds-form-section">';
   echo '<div class="gds-section-title">Mailing address</div>';
-  echo '<div class="gds-field"><label class="gds-label" for="nda_a1">Address line 1</label><input id="nda_a1" name="addr_line1" type="text" required value="' . $dL1 . '" autocomplete="address-line1" placeholder="Street address, P.O. box" /></div>';
+  echo '<div class="gds-field"><label class="gds-label" for="nda_a1">Address line 1' . $rm . '</label><input id="nda_a1" name="addr_line1" type="text" required value="' . $dL1 . '" autocomplete="address-line1" placeholder="Street address, P.O. box" /></div>';
   echo '<div class="gds-field"><label class="gds-label" for="nda_a2">Address line 2 <span class="muted" style="font-weight:500">(optional)</span></label><input id="nda_a2" name="addr_line2" type="text" value="' . $dL2 . '" autocomplete="address-line2" placeholder="Apartment, suite, unit" /></div>';
   echo '<div class="row">';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_city">City</label><input id="nda_city" name="addr_city" type="text" required value="' . $dCity . '" autocomplete="address-level2" /></div>';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_reg">State / province</label><input id="nda_reg" name="addr_region" type="text" required value="' . $dReg . '" autocomplete="address-level1" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_city">City' . $rm . '</label><input id="nda_city" name="addr_city" type="text" required value="' . $dCity . '" autocomplete="address-level2" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_reg">State / province' . $rm . '</label><input id="nda_reg" name="addr_region" type="text" required value="' . $dReg . '" autocomplete="address-level1" /></div>';
   echo '</div>';
   echo '<div class="row">';
-  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_zip">ZIP / postal code</label><input id="nda_zip" name="addr_postal" type="text" required value="' . $dZip . '" autocomplete="postal-code" /></div>';
+  echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_zip">ZIP / postal code' . $rm . '</label><input id="nda_zip" name="addr_postal" type="text" required value="' . $dZip . '" autocomplete="postal-code" /></div>';
   echo '<div class="gds-field" style="margin-bottom:0"><label class="gds-label" for="nda_ctry">Country <span class="muted" style="font-weight:500">(optional)</span></label><input id="nda_ctry" name="addr_country" type="text" value="' . $dCtry . '" autocomplete="country-name" /></div>';
   echo '</div>';
   echo '</div>';
