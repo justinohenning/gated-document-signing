@@ -1379,17 +1379,6 @@ a:hover {
   background: var(--gds-surface);
 }
 
-.gds-visitor-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-  gap: var(--gds-space-3);
-  align-items: start;
-}
-
-.gds-visitor-grid > .gds-visitor-profile {
-  margin: 0;
-}
-
 .gds-visitor-profile__addr {
   margin-top: var(--gds-space-3);
   padding: var(--gds-space-3);

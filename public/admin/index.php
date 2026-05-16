@@ -2786,8 +2786,7 @@ HTML;
     }
   }
   if ($sigs) {
-    echo '<p class="gds-lead" style="margin-top:0">Each card is someone who signed the NDA. Download their signed NDA and (if applicable) signed investment contract.</p>';
-    echo '<div class="gds-visitor-grid">';
+    echo '<p class="gds-lead" style="margin-top:0">Each row is someone who signed the NDA. Download their signed NDA and (if applicable) signed investment contract.</p>';
     foreach ($sigs as $s) {
       $sid = (int)$s['id'];
       $sem = strtolower((string)$s['signer_email']);
@@ -2801,7 +2800,7 @@ HTML;
       $contractDl = $cid > 0 ? ('download-signed-contract.php?project_id=' . (int)$proj['id'] . '&commitment_id=' . $cid) : '';
       $amt = $cmt ? (float)($cmt['committed_amount'] ?? 0) : null;
       $cur = $cmt ? (string)($cmt['currency'] ?? 'USD') : '';
-      echo '<div class="card gds-visitor-profile">';
+      echo '<div class="card gds-visitor-profile" style="margin-bottom:var(--gds-space-3)">';
       echo '<div class="gds-visitor-profile__head">';
       echo '<div><strong>' . Util::h((string)$s['signer_name']) . '</strong>';
       echo '<div class="muted" style="font-size:var(--gds-text-sm);margin-top:2px">' . Util::h((string)$s['signer_email']) . '</div></div>';
@@ -2857,7 +2856,6 @@ HTML;
       echo '</div>';
       echo '</div>';
     }
-    echo '</div>';
   } else {
     echo '<p class="gds-lead" style="margin-bottom:0">No signatures yet.</p>';
   }
