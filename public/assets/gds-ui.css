@@ -1324,49 +1324,42 @@ a:hover {
 .gds-admin-tabbar {
   display: flex;
   gap: 4px;
-  padding: var(--gds-space-3) var(--gds-space-4) 0;
-  border-bottom: 1px solid var(--gds-border);
+  padding: var(--gds-space-3);
   background: var(--gds-surface-subtle);
+  border-bottom: 1px solid var(--gds-border);
   flex-wrap: wrap;
 }
 
 .gds-admin-tab {
   appearance: none;
-  background: transparent;
   border: 1px solid transparent;
-  border-bottom: none;
-  padding: 9px 16px 10px;
+  background: transparent;
+  padding: 8px 16px;
   cursor: pointer;
   font: inherit;
   font-size: var(--gds-text-sm);
+  font-weight: 500;
   color: var(--gds-muted);
-  border-radius: var(--gds-radius-md) var(--gds-radius-md) 0 0;
-  margin-bottom: -1px;
-  position: relative;
+  border-radius: 999px;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .gds-admin-tab:hover {
   color: var(--gds-text);
-  background: rgba(15, 23, 42, 0.04);
+  background: rgba(15, 23, 42, 0.05);
 }
 
 .gds-admin-tab[aria-selected="true"] {
-  color: var(--gds-text);
+  color: #ffffff;
+  background: var(--gds-accent);
+  border-color: var(--gds-accent);
   font-weight: 600;
-  background: var(--gds-surface);
-  border-color: var(--gds-border);
-  box-shadow: 0 -2px 0 0 var(--gds-accent) inset;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12), 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
-.gds-admin-tab[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: -1px;
-  right: -1px;
-  bottom: -1px;
-  height: 2px;
-  background: var(--gds-surface);
-  pointer-events: none;
+.gds-admin-tab[aria-selected="true"]:hover {
+  background: var(--gds-accent);
+  color: #ffffff;
 }
 
 .gds-admin-tab:focus-visible {
@@ -1376,7 +1369,6 @@ a:hover {
 
 .gds-admin-tab-panel {
   padding: var(--gds-space-4) var(--gds-space-5);
-  background: var(--gds-surface);
 }
 
 .gds-visitor-grid {
